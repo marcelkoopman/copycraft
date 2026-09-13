@@ -159,8 +159,12 @@ fn colored_text(source: &str, kind: FormatKind) -> Retained<NSMutableAttributedS
         length: ns.length(),
     };
     unsafe {
-        attr.addAttribute_value_range(NSFontAttributeName, &*editor_font(), all);
-        attr.addAttribute_value_range(NSForegroundColorAttributeName, &*color_for(TokenKind::Text), all);
+        attr.addAttribute_value_range(NSFontAttributeName, &editor_font(), all);
+        attr.addAttribute_value_range(
+            NSForegroundColorAttributeName,
+            &color_for(TokenKind::Text),
+            all,
+        );
     }
     let mut offset = 0usize;
     for (token_kind, token) in highlight::tokens(source, kind) {
