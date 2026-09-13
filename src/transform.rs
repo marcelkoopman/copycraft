@@ -49,6 +49,11 @@ pub fn minify_json(text: &str) -> Result<String, String> {
     serde_json::to_string(&value).map_err(|e| e.to_string())
 }
 
+pub fn pretty_yaml(text: &str) -> Result<String, String> {
+    let value = parse_yaml(text)?;
+    serde_yaml::to_string(&value).map_err(|e| e.to_string())
+}
+
 pub fn json_to_yaml(text: &str) -> Result<String, String> {
     let value = parse_json(text)?;
     serde_yaml::to_string(&value).map_err(|e| e.to_string())
@@ -83,7 +88,7 @@ fn parse_yaml(text: &str) -> Result<YamlValue, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Transform, apply, json_to_yaml, looks_like_yaml, minify_json, yaml_to_json};
+    use super::{Transform, apply, json_to_yaml, looks_like_yaml, minify_json, pretty_yaml, yaml_to_json};
 
     #[test]
     fn minifies_json() {
@@ -104,6 +109,13 @@ mod tests {
     fn detects_yaml_not_json() {
         assert!(looks_like_yaml("name: copycraft\nitems:\n  - one\n"));
         assert!(!looks_like_yaml("{\"a\":1}"));
+    }
+
+    #[test]
+    fn pretty_yaml_keeps_keys() {
+        let out = pretty_yaml("name:   copycraft").unwrap();
+        assert!(out.contains("name"));
+        assert!(out.contains("copycraft"));
     }
 
     #[test]
