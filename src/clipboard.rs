@@ -61,7 +61,7 @@ pub fn preview_lines(text: &str) -> Vec<String> {
     }
     if truncated_total || text.lines().count() > MAX_LINES {
         lines.truncate(MAX_LINES.saturating_sub(1));
-        lines.push(…".to_string());
+        lines.push("...".to_string());
     }
     lines
 }
@@ -85,9 +85,12 @@ mod tests {
 
     #[test]
     fn caps_line_count() {
-        let text = (0..40).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        let text = (0..40)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let lines = preview_lines(&text);
         assert!(lines.len() <= 12);
-        assert_eq!(lines.last().unwrap(), "…");
+        assert_eq!(lines.last().unwrap(), "...");
     }
 }
