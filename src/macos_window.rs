@@ -217,15 +217,15 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     let text = NSTextView::initWithFrame(
         NSTextView::alloc(mtm),
         NSRect::new(
-            NSPoint::new(16.0, 0.0),
-            NSSize::new(width - 24.0, height - titlebar),
+            NSPoint::new(8.0, 0.0),
+            NSSize::new(width - 16.0, height - titlebar),
         ),
     );
     text.setEditable(false);
     text.setSelectable(true);
     text.setDrawsBackground(false);
     text.setBackgroundColor(&NSColor::clearColor());
-    text.setTextContainerInset(NSSize::new(16.0, 12.0));
+    text.setTextContainerInset(NSSize::new(10.0, 12.0));
     text.setFont(Some(&editor_font()));
     set_body(&text, &body, kind);
     scroll.setDocumentView(Some(&text));
@@ -246,8 +246,40 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     Ok(())
 }
 
+fn gutter(line: usize, width: usize) -> String {
+    format!("{line:>width$}  \u{2502} ")
+}
+
 fn colored_text(source: &str, kind: FormatKind) -> Retained<NSMutableAttributedString> {
-    let ns = NSString::from_str(source);
+    let line_count = source.lines().count().max(1);
+    let width = line_count.to_string().len();
+    let mut display = String::new();
+    let mut spans: Vec<(TokenKind, usize)> = Vec::new();
+    let mut line = 1usize;
+
+    let start = gutter(line, width);
+    display.push_str(&start);
+    spans.push((TokenKind::Comment, start.encode_utf16().count()));
+
+    for (token_kind, token) in highlight::tokens(source, kind) {
+        let parts: Vec<&str> = token.split('\n').collect();
+        for (i, part) in parts.iter().enumerate() {
+            if i > 0 {
+                display.push('\n');
+                spans.push((TokenKind::Text, 1));
+                line += 1;
+                let g = gutter(line, width);
+                display.push_str(&g);
+                spans.push((TokenKind::Comment, g.encode_utf16().count()));
+            }
+            if !part.is_empty() {
+                display.push_str(part);
+                spans.push((token_kind, part.encode_utf16().count()));
+            }
+        }
+    }
+
+    let ns = NSString::from_str(&display);
     let attr = NSMutableAttributedString::initWithString(NSMutableAttributedString::alloc(), &ns);
     let all = NSRange {
         location: 0,
@@ -262,15 +294,17 @@ fn colored_text(source: &str, kind: FormatKind) -> Retained<NSMutableAttributedS
         );
     }
     let mut offset = 0usize;
-    for (token_kind, token) in highlight::tokens(source, kind) {
-        let len = token.encode_utf16().count();
+    for (token_kind, len) in spans {
         let range = NSRange {
             location: offset,
             length: len,
         };
-        let color = color_for(token_kind);
         unsafe {
-            attr.addAttribute_value_range(NSForegroundColorAttributeName, &color, range);
+            attr.addAttribute_value_range(
+                NSForegroundColorAttributeName,
+                &color_for(token_kind),
+                range,
+            );
         }
         offset += len;
     }
