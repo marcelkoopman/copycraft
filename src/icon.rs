@@ -24,15 +24,7 @@ fn put(rgba: &mut [u8], x: i32, y: i32, color: [u8; 4]) {
     rgba[i + 3] = color[3];
 }
 
-fn fill_round_rect(
-    rgba: &mut [u8],
-    x: i32,
-    y: i32,
-    w: i32,
-    h: i32,
-    r: i32,
-    color: [u8; 4],
-) {
+fn fill_round_rect(rgba: &mut [u8], x: i32, y: i32, w: i32, h: i32, r: i32, color: [u8; 4]) {
     for py in y..y + h {
         for px in x..x + w {
             if inside_round_rect(px, py, x, y, w, h, r) {
