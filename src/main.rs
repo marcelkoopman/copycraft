@@ -1,5 +1,6 @@
 mod clipboard;
 mod format;
+mod highlight;
 mod icon;
 mod menubar;
 mod preview;
