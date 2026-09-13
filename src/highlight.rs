@@ -30,7 +30,7 @@ fn tokenize_xml(source: &str) -> Vec<(TokenKind, String)> {
     let mut i = 0;
     while i < chars.len() {
         if chars[i] == '<' {
-            if starts_with(&chars, i, "<!--") {
+            if starts_prefix(&chars, i, "<!--") {
                 let mut j = i + 4;
                 while j + 2 < chars.len()
                     && !(chars[j] == '-' && chars[j + 1] == '-' && chars[j + 2] == '>')
@@ -92,7 +92,7 @@ fn color_xml_tag(out: &mut Vec<(TokenKind, String)>, tag: &str) {
             let (token, next) = take_while(&chars, i, |c| {
                 c.is_ascii_alphanumeric() || matches!(c, '_' | ':' | '-')
             });
-            let kind = if i > 0 && chars[i - 1] == '<'
+            let kind = if (i > 0 && chars[i - 1] == '<')
                 || (i > 1 && chars[i - 1] == '/' && chars[i - 2] == '<')
             {
                 TokenKind::Keyword
@@ -322,6 +322,11 @@ fn skip_ws(chars: &[char], mut i: usize) -> usize {
         i += 1;
     }
     i
+}
+
+fn starts_prefix(chars: &[char], i: usize, prefix: &str) -> bool {
+    let w: Vec<char> = prefix.chars().collect();
+    i + w.len() <= chars.len() && chars[i..i + w.len()] == w[..]
 }
 
 fn starts_with(chars: &[char], i: usize, word: &str) -> bool {
