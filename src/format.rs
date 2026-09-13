@@ -20,8 +20,7 @@ impl FormatKind {
             Self::Java => "java",
             Self::Url => "url",
             Self::Xml => "xml",
-            Self::Text => "text",
-            Self::Plain => "",
+            Self::Text | Self::Plain => "",
         }
     }
 
@@ -61,7 +60,9 @@ pub fn detect(text: &str) -> FormatKind {
 
 pub fn format_text(text: &str) -> String {
     match detect(text) {
-        FormatKind::Json => crate::clipboard::try_format_json(text).unwrap_or_else(|| text.to_string()),
+        FormatKind::Json => {
+            crate::clipboard::try_format_json(text).unwrap_or_else(|| text.to_string())
+        }
         FormatKind::Rust => format_rust(text),
         FormatKind::Java => indent_braces(text),
         _ => text.to_string(),
@@ -69,8 +70,17 @@ pub fn format_text(text: &str) -> String {
 }
 
 fn looks_like_rust(text: &str) -> bool {
-    let rust_hits = ["fn ", "impl ", "pub fn", "let mut", "match ", "use crate", "#[derive"];
-    score(text, &rust_hits) >= 2 || (text.contains("fn ") && (text.contains('{') || text.contains("->")))
+    let rust_hits = [
+        "fn ",
+        "impl ",
+        "pub fn",
+        "let mut",
+        "match ",
+        "use crate",
+        "#[derive",
+    ];
+    score(text, &rust_hits) >= 2
+        || (text.contains("fn ") && (text.contains('{') || text.contains("->")))
 }
 
 fn looks_like_java(text: &str) -> bool {
