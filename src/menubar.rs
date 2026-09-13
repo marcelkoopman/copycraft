@@ -37,7 +37,7 @@ impl ApplicationHandler for App {
             }
         }
 
-        while let Ok(_) = TrayIconEvent::receiver().try_recv() {
+        while TrayIconEvent::receiver().try_recv().is_ok() {
             self.refresh_menu();
         }
 
@@ -65,7 +65,7 @@ impl App {
         let _ = menu.append(&MenuItem::with_id("refresh", "Refresh", true, None));
         let _ = menu.append(&MenuItem::with_id("quit", "Quit", true, None));
         self.tray.set_menu(Some(Box::new(menu)));
-        self.tray.set_tooltip(Some("Copycraft — clipboard"));
+        let _ = self.tray.set_tooltip(Some("Copycraft — clipboard"));
     }
 }
 
