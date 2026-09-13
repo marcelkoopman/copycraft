@@ -86,6 +86,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
         WINDOW.with(|slot| {
             if let Some(window) = slot.borrow().as_ref() {
                 window.setTitle(&NSString::from_str(title));
+                window.setAlphaValue(0.86);
                 window.makeKeyAndOrderFront(None);
                 window.orderFrontRegardless();
             }
@@ -123,11 +124,11 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     window.setOpaque(false);
     window.setHasShadow(true);
     window.setBackgroundColor(Some(&NSColor::clearColor()));
-    window.setAlphaValue(0.97);
+    window.setAlphaValue(0.86);
 
     let bounds = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(width, height));
     let frosted = NSVisualEffectView::initWithFrame(NSVisualEffectView::alloc(mtm), bounds);
-    frosted.setMaterial(NSVisualEffectMaterial::Menu);
+    frosted.setMaterial(NSVisualEffectMaterial::UnderWindowBackground);
     frosted.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
     frosted.setState(NSVisualEffectState::Active);
     frosted.setAutoresizingMask(
