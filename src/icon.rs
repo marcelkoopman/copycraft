@@ -8,7 +8,7 @@ pub fn menu_icon() -> Result<Icon, Box<dyn std::error::Error>> {
         for x in 0..SIZE {
             let i = ((y * SIZE + x) * 4) as usize;
             let edge = x < 3 || y < 3 || x >= SIZE - 3 || y >= SIZE - 3;
-            let paper = x >= 6 && x < SIZE - 6 && y >= 6 && y < SIZE - 6;
+            let paper = (6..SIZE - 6).contains(&x) && (6..SIZE - 6).contains(&y);
             if edge {
                 rgba[i] = 40;
                 rgba[i + 1] = 40;
@@ -24,7 +24,6 @@ pub fn menu_icon() -> Result<Icon, Box<dyn std::error::Error>> {
             }
         }
     }
-    // clipboard clip on top
     for x in 12..20 {
         for y in 2..8 {
             let i = ((y * SIZE + x) * 4) as usize;
