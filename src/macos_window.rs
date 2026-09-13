@@ -6,9 +6,9 @@ use objc2::rc::{Allocated, Retained};
 use objc2::runtime::{AnyObject, NSObject};
 use objc2::{AnyThread, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSApplication, NSAutoresizingMaskOptions, NSBackingStoreType, NSButton, NSColor,
-    NSFont, NSFontAttributeName, NSForegroundColorAttributeName, NSScrollView, NSTextView,
-    NSWindow, NSWindowStyleMask,
+    NSApplication, NSAutoresizingMaskOptions, NSBackingStoreType, NSButton, NSColor, NSFont,
+    NSFontAttributeName, NSForegroundColorAttributeName, NSScrollView, NSTextView, NSWindow,
+    NSWindowStyleMask,
 };
 use objc2_foundation::{NSMutableAttributedString, NSPoint, NSRange, NSRect, NSSize, NSString};
 
