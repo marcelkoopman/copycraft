@@ -1,12 +1,9 @@
 use crate::format::FormatKind;
 
-#[cfg(target_os = "macos")]
-mod macos_window;
-
 pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        macos_window::show(formatted, kind)
+        crate::macos_window::show(formatted, kind)
     }
     #[cfg(not(target_os = "macos"))]
     {
