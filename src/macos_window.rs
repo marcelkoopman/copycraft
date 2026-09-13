@@ -80,7 +80,8 @@ fn editor_font() -> Retained<NSFont> {
 
 fn style_copy_button(copied: bool) {
     BUTTON.with(|slot| {
-        let Some(button) = slot.borrow().as_ref() else {
+        let borrowed = slot.borrow();
+        let Some(button) = borrowed.as_ref() else {
             return;
         };
         let label = if copied { "Copied  \u{2713}" } else { "Copy" };
