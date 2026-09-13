@@ -1,0 +1,5 @@
+# cargo-audit configuration (also read as .cargo/audit.toml by some setups)
+# https://docs.rs/cargo-audit/latest/cargo_audit/
+
+[advisories]
+ignore = []

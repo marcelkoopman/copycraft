@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "pre-commit: cargo not on PATH" >&2
+  exit 1
+fi
+
+staged_rs=()
+while IFS= read -r file; do
+  [ -n "$file" ] || continue
+  staged_rs+=("$file")
+done < <(git diff --cached --name-only --diff-filter=ACM -- '*.rs')
+
+cargo fmt --all
+
+for file in "${staged_rs[@]+"${staged_rs[@]}"}"; do
+  git add -- "$file"
+done

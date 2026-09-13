@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "pre-push: cargo not on PATH" >&2
+  exit 1
+fi
+
+echo "pre-push: cargo clippy -- -D warnings"
+cargo clippy -- -D warnings
+
+echo "pre-push: cargo test"
+cargo test
