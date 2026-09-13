@@ -4,6 +4,7 @@ use std::process::{Command, Stdio};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FormatKind {
     Json,
+    Yaml,
     Rust,
     Java,
     Url,
@@ -16,6 +17,7 @@ impl FormatKind {
     pub fn label(self) -> &'static str {
         match self {
             Self::Json => "json",
+            Self::Yaml => "yaml",
             Self::Rust => "rust",
             Self::Java => "java",
             Self::Url => "url",
@@ -27,6 +29,7 @@ impl FormatKind {
     pub fn preview_heading(self) -> &'static str {
         match self {
             Self::Json => "Formatted JSON",
+            Self::Yaml => "YAML",
             Self::Rust => "Formatted Rust",
             Self::Java => "Formatted Java",
             _ => "Content",
@@ -37,6 +40,9 @@ impl FormatKind {
 pub fn detect(text: &str) -> FormatKind {
     if crate::clipboard::try_format_json(text).is_some() {
         return FormatKind::Json;
+    }
+    if crate::transform::looks_like_yaml(text) {
+        return FormatKind::Yaml;
     }
     let trimmed = text.trim_start();
     if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
@@ -63,9 +69,14 @@ pub fn format_text(text: &str) -> String {
         FormatKind::Json => {
             crate::clipboard::try_format_json(text).unwrap_or_else(|| text.to_string())
         }
+        FormatKind::Yaml => {
+            crate::transform::pretty_yaml(text).unwrap_or_else(|_| text.to_string())
+        }
         FormatKind::Rust => format_rust(text),
         FormatKind::Java => indent_braces(text),
-        _ => text.to_string(),
+        FormatKind::Url | FormatKind::Xml | FormatKind::Text | FormatKind::Plain => {
+            text.to_string()
+        }
     }
 }
 
@@ -188,6 +199,12 @@ mod tests {
     fn detects_java() {
         let src = "public class App { public static void main(String[] args) { } }";
         assert_eq!(detect(src), FormatKind::Java);
+    }
+
+    #[test]
+    fn detects_yaml() {
+        let src = "name: copycraft\nitems:\n  - one\n";
+        assert_eq!(detect(src), FormatKind::Yaml);
     }
 
     #[test]

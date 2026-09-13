@@ -4,6 +4,7 @@ mod highlight;
 mod icon;
 mod menubar;
 mod preview;
+mod transform;
 
 #[cfg(target_os = "macos")]
 mod macos_window;

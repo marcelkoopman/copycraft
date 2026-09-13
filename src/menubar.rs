@@ -61,8 +61,27 @@ impl ApplicationHandler for App {
 }
 
 impl App {
+    fn current_text(&self) -> Option<String> {
+        ClipboardView::from_os().text().map(str::to_string)
+    }
+
+    fn auto_format(&mut self) {
+        let Some(text) = self.current_text() else {
+            return;
+        };
+        let formatted = clipboard::formatted(&text);
+        if formatted == text {
+            return;
+        }
+        if let Err(e) = clipboard::write_clipboard(&formatted) {
+            eprintln!("auto-format write failed: {e}");
+            return;
+        }
+        self.history.record(formatted);
+    }
+
     fn show_current(&mut self) {
-        if let Some(text) = ClipboardView::from_os().text().map(str::to_string) {
+        if let Some(text) = self.current_text() {
             self.open_preview(&text);
         }
     }
@@ -83,6 +102,7 @@ impl App {
     }
 
     fn rebuild_menu(&mut self, force: bool) {
+        self.auto_format();
         let view = ClipboardView::from_os();
         if let Some(text) = view.text() {
             self.history.record(text.to_string());
