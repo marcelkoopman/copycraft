@@ -22,6 +22,7 @@ struct App {
     history: ClipboardHistory,
     last_label: String,
     history_len: usize,
+    skip_record: Option<String>,
 }
 
 impl ApplicationHandler for App {
@@ -37,10 +38,7 @@ impl ApplicationHandler for App {
                     event_loop.exit();
                     return;
                 }
-                "clear" => {
-                    self.history.clear();
-                    self.rebuild_menu(true);
-                }
+                "clear" => self.clear_history(),
                 "current" => self.show_current(),
                 id if id.starts_with("hist_") => {
                     if let Ok(index) = id.trim_start_matches("hist_").parse::<usize>() {
@@ -65,6 +63,18 @@ impl App {
         ClipboardView::from_os().text().map(str::to_string)
     }
 
+    fn clear_history(&mut self) {
+        self.skip_record = self.current_text();
+        self.history.clear();
+        self.last_label.clear();
+        self.history_len = 0;
+        self.rebuild_menu(true);
+    }
+
+    fn should_record(&self, text: &str) -> bool {
+        self.skip_record.as_deref() != Some(text)
+    }
+
     fn auto_format(&mut self) {
         let Some(text) = self.current_text() else {
             return;
@@ -77,7 +87,11 @@ impl App {
             eprintln!("auto-format write failed: {e}");
             return;
         }
-        self.history.record(formatted);
+        if self.should_record(&formatted) {
+            self.history.record(formatted);
+        } else {
+            self.skip_record = Some(formatted);
+        }
     }
 
     fn show_current(&mut self) {
@@ -104,7 +118,10 @@ impl App {
     fn rebuild_menu(&mut self, force: bool) {
         self.auto_format();
         let view = ClipboardView::from_os();
-        if let Some(text) = view.text() {
+        if let Some(text) = view.text()
+            && self.should_record(text)
+        {
+            self.skip_record = None;
             self.history.record(text.to_string());
         }
 
@@ -166,6 +183,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         history: ClipboardHistory::default(),
         last_label: String::new(),
         history_len: 0,
+        skip_record: None,
     };
     app.rebuild_menu(true);
 

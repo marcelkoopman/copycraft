@@ -19,7 +19,92 @@ pub fn tokens(source: &str, kind: FormatKind) -> Vec<(TokenKind, String)> {
         FormatKind::Json => tokenize_json(source),
         FormatKind::Rust => tokenize_rust(source),
         FormatKind::Java => tokenize_code(source, kind),
+        FormatKind::Xml => tokenize_xml(source),
         _ => vec![(TokenKind::Text, source.to_string())],
+    }
+}
+
+fn tokenize_xml(source: &str) -> Vec<(TokenKind, String)> {
+    let chars: Vec<char> = source.chars().collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '<' {
+            if starts_prefix(&chars, i, "<!--") {
+                let mut j = i + 4;
+                while j + 2 < chars.len()
+                    && !(chars[j] == '-' && chars[j + 1] == '-' && chars[j + 2] == '>')
+                {
+                    j += 1;
+                }
+                j = (j + 3).min(chars.len());
+                out.push((TokenKind::Comment, chars[i..j].iter().collect()));
+                i = j;
+                continue;
+            }
+            let mut j = i + 1;
+            while j < chars.len() && chars[j] != '>' {
+                j += 1;
+            }
+            if j >= chars.len() {
+                out.push((TokenKind::Text, chars[i..].iter().collect()));
+                break;
+            }
+            let tag: String = chars[i..=j].iter().collect();
+            color_xml_tag(&mut out, &tag);
+            i = j + 1;
+            continue;
+        }
+        let mut j = i;
+        while j < chars.len() && chars[j] != '<' {
+            j += 1;
+        }
+        out.push((TokenKind::Text, chars[i..j].iter().collect()));
+        i = j;
+    }
+    out
+}
+
+fn color_xml_tag(out: &mut Vec<(TokenKind, String)>, tag: &str) {
+    let chars: Vec<char> = tag.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let ch = chars[i];
+        if ch == '"' || ch == '\'' {
+            let quote = ch;
+            let mut j = i + 1;
+            while j < chars.len() && chars[j] != quote {
+                j += 1;
+            }
+            if j < chars.len() {
+                j += 1;
+            }
+            out.push((TokenKind::String, chars[i..j].iter().collect()));
+            i = j;
+            continue;
+        }
+        if ch == '<' || ch == '>' || ch == '/' || ch == '?' || ch == '!' {
+            out.push((TokenKind::Punct, ch.to_string()));
+            i += 1;
+            continue;
+        }
+        if ch.is_ascii_alphabetic() || ch == '_' || ch == ':' {
+            let (token, next) = take_while(&chars, i, |c| {
+                c.is_ascii_alphanumeric() || matches!(c, '_' | ':' | '-')
+            });
+            let kind = if (i > 0 && chars[i - 1] == '<')
+                || (i > 1 && chars[i - 1] == '/' && chars[i - 2] == '<')
+            {
+                TokenKind::Keyword
+            } else {
+                TokenKind::Key
+            };
+            out.push((kind, token));
+            i = next;
+            continue;
+        }
+        out.push((TokenKind::Text, ch.to_string()));
+        i += 1;
     }
 }
 
@@ -239,6 +324,11 @@ fn skip_ws(chars: &[char], mut i: usize) -> usize {
     i
 }
 
+fn starts_prefix(chars: &[char], i: usize, prefix: &str) -> bool {
+    let w: Vec<char> = prefix.chars().collect();
+    i + w.len() <= chars.len() && chars[i..i + w.len()] == w[..]
+}
+
 fn starts_with(chars: &[char], i: usize, word: &str) -> bool {
     let w: Vec<char> = word.chars().collect();
     if i + w.len() > chars.len() {
@@ -277,5 +367,20 @@ mod tests {
             toks.iter()
                 .any(|(k, v)| *k == TokenKind::Macro && v == "eprintln!")
         );
+    }
+
+    #[test]
+    fn xml_marks_tags_and_attrs() {
+        let toks = tokens("<root id=\"1\"><!--x--></root>", FormatKind::Xml);
+        assert!(
+            toks.iter()
+                .any(|(k, v)| *k == TokenKind::Keyword && v == "root")
+        );
+        assert!(toks.iter().any(|(k, v)| *k == TokenKind::Key && v == "id"));
+        assert!(
+            toks.iter()
+                .any(|(k, v)| *k == TokenKind::String && v.contains('1'))
+        );
+        assert!(toks.iter().any(|(k, _)| *k == TokenKind::Comment));
     }
 }

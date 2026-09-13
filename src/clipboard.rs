@@ -135,6 +135,12 @@ mod tests {
     }
 
     #[test]
+    fn one_line_marks_xml() {
+        let label = one_line("<root><item/></root>");
+        assert!(label.starts_with("xml "));
+    }
+
+    #[test]
     fn formats_json_when_valid() {
         let pretty = try_format_json("{\"name\":\"copycraft\"}").expect("json");
         assert!(pretty.contains('\n'));
@@ -155,6 +161,13 @@ mod tests {
     }
 
     #[test]
+    fn formatted_pretty_prints_xml() {
+        let pretty = formatted("<a><b>x</b></a>");
+        assert!(pretty.contains('\n'));
+        assert!(pretty.contains("    <b>"));
+    }
+
+    #[test]
     fn one_line_truncates() {
         let label = one_line(&"a".repeat(80));
         assert!(label.chars().count() <= 48);
@@ -170,5 +183,16 @@ mod tests {
         assert_eq!(history.get(0), Some("one"));
         assert_eq!(history.get(1), Some("two"));
         assert_eq!(history.labels().len(), 2);
+    }
+
+    #[test]
+    fn history_clear_empties_selectable_items() {
+        let mut history = ClipboardHistory::default();
+        history.record("one".into());
+        history.record("two".into());
+        history.clear();
+        assert!(history.is_empty());
+        assert!(history.labels().is_empty());
+        assert_eq!(history.get(0), None);
     }
 }
