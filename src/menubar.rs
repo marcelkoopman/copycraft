@@ -1,5 +1,7 @@
 use std::time::{Duration, Instant};
 
+use global_hotkey::hotkey::{Code, HotKey, Modifiers};
+use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use tray_icon::{
     TrayIcon, TrayIconBuilder, TrayIconEvent,
     menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
@@ -14,14 +16,50 @@ use crate::clipboard::{self, ClipboardHistory, ClipboardView};
 use crate::format;
 use crate::icon;
 use crate::preview;
+use crate::transform::{self, Transform};
 
 const REFRESH: Duration = Duration::from_millis(400);
+
+struct Hotkeys {
+    pretty: HotKey,
+    minify: HotKey,
+    to_yaml: HotKey,
+    to_json: HotKey,
+    preview: HotKey,
+    _manager: GlobalHotKeyManager,
+}
+
+impl Hotkeys {
+    fn register() -> Option<Self> {
+        let manager = GlobalHotKeyManager::new().ok()?;
+        let mods = Modifiers::META | Modifiers::SHIFT;
+        let pretty = HotKey::new(Some(mods), Code::KeyJ);
+        let minify = HotKey::new(Some(mods), Code::KeyM);
+        let to_yaml = HotKey::new(Some(mods), Code::KeyY);
+        let to_json = HotKey::new(Some(mods), Code::KeyU);
+        let preview = HotKey::new(Some(mods), Code::KeyP);
+        manager.register(pretty).ok()?;
+        manager.register(minify).ok()?;
+        manager.register(to_yaml).ok()?;
+        manager.register(to_json).ok()?;
+        manager.register(preview).ok()?;
+        Some(Self {
+            pretty,
+            minify,
+            to_yaml,
+            to_json,
+            preview,
+            _manager: manager,
+        })
+    }
+}
 
 struct App {
     tray: TrayIcon,
     history: ClipboardHistory,
     last_label: String,
     history_len: usize,
+    hotkeys: Option<Hotkeys>,
 }
 
 impl ApplicationHandler for App {
@@ -47,7 +85,30 @@ impl ApplicationHandler for App {
                         self.show_history(index);
                     }
                 }
-                _ => {}
+                id => {
+                    if let Some(action) = Transform::from_id(id) {
+                        self.apply_transform(action);
+                    }
+                }
+            }
+        }
+
+        while let Ok(event) = GlobalHotKeyEvent::receiver().try_recv() {
+            if event.state != HotKeyState::Pressed {
+                continue;
+            }
+            if let Some(hotkeys) = &self.hotkeys {
+                if event.id == hotkeys.pretty.id() {
+                    self.apply_transform(Transform::PrettyJson);
+                } else if event.id == hotkeys.minify.id() {
+                    self.apply_transform(Transform::MinifyJson);
+                } else if event.id == hotkeys.to_yaml.id() {
+                    self.apply_transform(Transform::JsonToYaml);
+                } else if event.id == hotkeys.to_json.id() {
+                    self.apply_transform(Transform::YamlToJson);
+                } else if event.id == hotkeys.preview.id() {
+                    self.show_current();
+                }
             }
         }
 
@@ -61,8 +122,12 @@ impl ApplicationHandler for App {
 }
 
 impl App {
+    fn current_text(&self) -> Option<String> {
+        ClipboardView::from_os().text().map(str::to_string)
+    }
+
     fn show_current(&mut self) {
-        if let Some(text) = ClipboardView::from_os().text().map(str::to_string) {
+        if let Some(text) = self.current_text() {
             self.open_preview(&text);
         }
     }
@@ -70,6 +135,23 @@ impl App {
     fn show_history(&mut self, index: usize) {
         if let Some(text) = self.history.get(index).map(str::to_string) {
             self.open_preview(&text);
+        }
+    }
+
+    fn apply_transform(&mut self, action: Transform) {
+        let Some(text) = self.current_text() else {
+            return;
+        };
+        match transform::apply(action, &text) {
+            Ok(next) => {
+                if let Err(e) = clipboard::write_clipboard(&next) {
+                    eprintln!("clipboard write failed: {e}");
+                    return;
+                }
+                self.history.record(next);
+                self.rebuild_menu(true);
+            }
+            Err(e) => eprintln!("transform failed: {e}"),
         }
     }
 
@@ -101,6 +183,32 @@ impl App {
         let _ = menu.append(&MenuItem::with_id(
             "current",
             format!("• {label}"),
+            true,
+            None,
+        ));
+        let _ = menu.append(&PredefinedMenuItem::separator());
+        let _ = menu.append(&MenuItem::new("Transform", false, None));
+        let _ = menu.append(&MenuItem::with_id(
+            Transform::PrettyJson.id(),
+            "Pretty JSON    ⌘⇧J",
+            true,
+            None,
+        ));
+        let _ = menu.append(&MenuItem::with_id(
+            Transform::MinifyJson.id(),
+            "Minify JSON    ⌘⇧M",
+            true,
+            None,
+        ));
+        let _ = menu.append(&MenuItem::with_id(
+            Transform::JsonToYaml.id(),
+            "JSON → YAML    ⌘⇧Y",
+            true,
+            None,
+        ));
+        let _ = menu.append(&MenuItem::with_id(
+            Transform::YamlToJson.id(),
+            "YAML → JSON    ⌘⇧U",
             true,
             None,
         ));
@@ -141,11 +249,17 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .with_tooltip("Copycraft")
         .build()?;
 
+    let hotkeys = Hotkeys::register();
+    if hotkeys.is_none() {
+        eprintln!("global hotkeys unavailable (permissions or already registered)");
+    }
+
     let mut app = App {
         tray,
         history: ClipboardHistory::default(),
         last_label: String::new(),
         history_len: 0,
+        hotkeys,
     };
     app.rebuild_menu(true);
 
