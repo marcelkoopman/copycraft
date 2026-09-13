@@ -2,11 +2,11 @@
 
 use std::cell::RefCell;
 
-use objc2::{MainThreadMarker, MainThreadOnly};
 use objc2::rc::Retained;
+use objc2::{MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
-    NSApplication, NSAutoresizingMaskOptions, NSBackingStoreType, NSColor, NSFont, NSFontWeightRegular,
-    NSScrollView, NSTextView, NSWindow, NSWindowStyleMask,
+    NSApplication, NSAutoresizingMaskOptions, NSBackingStoreType, NSColor, NSFont,
+    NSFontWeightRegular, NSScrollView, NSTextView, NSWindow, NSWindowStyleMask,
 };
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 
@@ -48,14 +48,14 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
         .contentView()
         .ok_or("window has no content view")?;
     let bounds = content.bounds();
-    let scroll = unsafe { NSScrollView::initWithFrame(NSScrollView::alloc(mtm), bounds) };
+    let scroll = NSScrollView::initWithFrame(NSScrollView::alloc(mtm), bounds);
     scroll.setHasVerticalScroller(true);
     scroll.setHasHorizontalScroller(true);
     scroll.setAutoresizingMask(
         NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
     );
 
-    let text = unsafe { NSTextView::initWithFrame(NSTextView::alloc(mtm), bounds) };
+    let text = NSTextView::initWithFrame(NSTextView::alloc(mtm), bounds);
     text.setEditable(false);
     text.setSelectable(true);
     text.setDrawsBackground(true);
@@ -65,10 +65,8 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     text.setTextColor(Some(&NSColor::colorWithCalibratedRed_green_blue_alpha(
         0.91, 0.91, 0.93, 1.0,
     )));
-    text.setFont(Some(&NSFont::monospacedSystemFontOfSize_weight(
-        13.0,
-        NSFontWeightRegular,
-    )));
+    let weight = unsafe { NSFontWeightRegular };
+    text.setFont(Some(&NSFont::monospacedSystemFontOfSize_weight(13.0, weight)));
     text.setString(&NSString::from_str(&format!(
         "Select all and press Cmd+C to copy.\n\n{body}"
     )));
