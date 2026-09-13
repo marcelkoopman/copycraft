@@ -89,9 +89,12 @@ fn color_xml_tag(out: &mut Vec<(TokenKind, String)>, tag: &str) {
             continue;
         }
         if ch.is_ascii_alphabetic() || ch == '_' || ch == ':' {
-            let (token, next) =
-                take_while(&chars, i, |c| c.is_ascii_alphanumeric() || matches!(c, '_' | ':' | '-'));
-            let kind = if i > 0 && chars[i - 1] == '<' || (i > 1 && chars[i - 1] == '/' && chars[i - 2] == '<') {
+            let (token, next) = take_while(&chars, i, |c| {
+                c.is_ascii_alphanumeric() || matches!(c, '_' | ':' | '-')
+            });
+            let kind = if i > 0 && chars[i - 1] == '<'
+                || (i > 1 && chars[i - 1] == '/' && chars[i - 2] == '<')
+            {
                 TokenKind::Keyword
             } else {
                 TokenKind::Key
@@ -364,9 +367,15 @@ mod tests {
     #[test]
     fn xml_marks_tags_and_attrs() {
         let toks = tokens("<root id=\"1\"><!--x--></root>", FormatKind::Xml);
-        assert!(toks.iter().any(|(k, v)| *k == TokenKind::Keyword && v == "root"));
+        assert!(
+            toks.iter()
+                .any(|(k, v)| *k == TokenKind::Keyword && v == "root")
+        );
         assert!(toks.iter().any(|(k, v)| *k == TokenKind::Key && v == "id"));
-        assert!(toks.iter().any(|(k, v)| *k == TokenKind::String && v.contains('1')));
+        assert!(
+            toks.iter()
+                .any(|(k, v)| *k == TokenKind::String && v.contains('1'))
+        );
         assert!(toks.iter().any(|(k, _)| *k == TokenKind::Comment));
     }
 }

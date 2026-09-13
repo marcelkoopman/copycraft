@@ -105,7 +105,9 @@ fn tag_balance(text: &str) -> bool {
         }
         if starts_at(&chars, i, "<!--") {
             i += 4;
-            while i + 2 < chars.len() && !(chars[i] == '-' && chars[i + 1] == '-' && chars[i + 2] == '>') {
+            while i + 2 < chars.len()
+                && !(chars[i] == '-' && chars[i + 1] == '-' && chars[i + 2] == '>')
+            {
                 i += 1;
             }
             i = (i + 3).min(chars.len());
@@ -221,7 +223,9 @@ fn xml_tokens(src: &str) -> Vec<XmlToken> {
         if chars[i] == '<' {
             if starts_at(&chars, i, "<!--") {
                 let mut j = i + 4;
-                while j + 2 < chars.len() && !(chars[j] == '-' && chars[j + 1] == '-' && chars[j + 2] == '>') {
+                while j + 2 < chars.len()
+                    && !(chars[j] == '-' && chars[j + 1] == '-' && chars[j + 2] == '>')
+                {
                     j += 1;
                 }
                 j = (j + 3).min(chars.len());
