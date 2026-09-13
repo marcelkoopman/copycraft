@@ -1,19 +1,21 @@
 #![cfg(target_os = "macos")]
 
-use std::sync::Mutex;
+use std::cell::RefCell;
 
-use objc2::MainThreadMarker;
+use objc2::{MainThreadMarker, MainThreadOnly};
 use objc2::rc::Retained;
 use objc2_app_kit::{
-    NSApplication, NSBackingStoreType, NSColor, NSFont, NSScrollView, NSTextView, NSView,
-    NSWindow, NSWindowStyleMask,
+    NSApplication, NSAutoresizingMaskOptions, NSBackingStoreType, NSColor, NSFont, NSFontWeightRegular,
+    NSScrollView, NSTextView, NSWindow, NSWindowStyleMask,
 };
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 
 use crate::clipboard;
 use crate::format::FormatKind;
 
-static WINDOW: Mutex<Option<Retained<NSWindow>>> = Mutex::new(None);
+thread_local! {
+    static WINDOW: RefCell<Option<Retained<NSWindow>>> = const { RefCell::new(None) };
+}
 
 pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     let mtm = MainThreadMarker::new().ok_or("preview must run on the main thread")?;
@@ -34,7 +36,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
             NSWindow::alloc(mtm),
             frame,
             style,
-            NSBackingStoreType::NSBackingStoreBuffered,
+            NSBackingStoreType::Buffered,
             false,
         )
     };
@@ -50,8 +52,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     scroll.setHasVerticalScroller(true);
     scroll.setHasHorizontalScroller(true);
     scroll.setAutoresizingMask(
-        objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable
-            | objc2_app_kit::NSAutoresizingMaskOptions::ViewHeightSizable,
+        NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
     );
 
     let text = unsafe { NSTextView::initWithFrame(NSTextView::alloc(mtm), bounds) };
@@ -66,7 +67,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     )));
     text.setFont(Some(&NSFont::monospacedSystemFontOfSize_weight(
         13.0,
-        objc2_app_kit::NSFontWeightRegular,
+        NSFontWeightRegular,
     )));
     text.setString(&NSString::from_str(&format!(
         "Select all and press Cmd+C to copy.\n\n{body}"
@@ -79,6 +80,8 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     window.orderFrontRegardless();
 
     let _ = clipboard::write_clipboard(&body);
-    *WINDOW.lock().map_err(|e| e.to_string())? = Some(window);
+    WINDOW.with(|slot| {
+        *slot.borrow_mut() = Some(window);
+    });
     Ok(())
 }
