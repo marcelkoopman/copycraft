@@ -1,4 +1,4 @@
-use crate::format::{self, FormatKind};
+use crate::format;
 
 const MAX_LABEL_CHARS: usize = 48;
 const MAX_HISTORY: usize = 20;
@@ -129,11 +129,11 @@ pub fn one_line(text: &str) -> String {
         .find(|line| !line.is_empty())
         .unwrap_or("(empty)");
     let collapsed: String = first.split_whitespace().collect::<Vec<_>>().join(" ");
-    let kind = format::detect(text);
-    let raw = if kind == FormatKind::Plain {
+    let kind = format::detect(text).label();
+    let raw = if kind.is_empty() {
         collapsed
     } else {
-        format!("{} {collapsed}", kind.label())
+        format!("{kind} {collapsed}")
     };
     truncate_label(&raw)
 }
@@ -142,7 +142,10 @@ fn truncate_label(label: &str) -> String {
     if label.chars().count() <= MAX_LABEL_CHARS {
         return label.to_string();
     }
-    let mut out: String = label.chars().take(MAX_LABEL_CHARS.saturating_sub(3)).collect();
+    let mut out: String = label
+        .chars()
+        .take(MAX_LABEL_CHARS.saturating_sub(3))
+        .collect();
     out.push_str("...");
     out
 }
