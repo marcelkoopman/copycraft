@@ -21,6 +21,7 @@ thread_local! {
     static WINDOW: RefCell<Option<Retained<NSWindow>>> = const { RefCell::new(None) };
     static TARGET: RefCell<Option<Retained<CopyTarget>>> = const { RefCell::new(None) };
     static TEXT: RefCell<Option<Retained<NSTextView>>> = const { RefCell::new(None) };
+    static BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static PREVIEW_TEXT: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
@@ -36,6 +37,20 @@ define_class!(
             PREVIEW_TEXT.with(|text| {
                 let _ = clipboard::write_clipboard(&text.borrow());
             });
+            style_copy_button(true);
+            unsafe {
+                let _: () = msg_send![
+                    self,
+                    performSelector: sel!(resetCopyLabel:),
+                    withObject: None::<&AnyObject>,
+                    afterDelay: 1.6
+                ];
+            }
+        }
+
+        #[unsafe(method(resetCopyLabel:))]
+        fn reset_copy_label(&self, _sender: Option<&AnyObject>) {
+            style_copy_button(false);
         }
     }
 );
@@ -61,6 +76,36 @@ fn editor_font() -> Retained<NSFont> {
         }
     }
     NSFont::monospacedSystemFontOfSize_weight(14.0, 0.0)
+}
+
+fn style_copy_button(copied: bool) {
+    BUTTON.with(|slot| {
+        let Some(button) = slot.borrow().as_ref() else {
+            return;
+        };
+        let label = if copied { "Copied  \u{2713}" } else { "Copy" };
+        let ns = NSString::from_str(label);
+        let attr =
+            NSMutableAttributedString::initWithString(NSMutableAttributedString::alloc(), &ns);
+        let all = NSRange {
+            location: 0,
+            length: ns.length(),
+        };
+        let color = if copied {
+            NSColor::colorWithCalibratedRed_green_blue_alpha(0.32, 0.84, 0.54, 1.0)
+        } else {
+            NSColor::colorWithCalibratedRed_green_blue_alpha(0.86, 0.89, 0.93, 1.0)
+        };
+        unsafe {
+            attr.addAttribute_value_range(NSForegroundColorAttributeName, &color, all);
+            attr.addAttribute_value_range(
+                NSFontAttributeName,
+                &NSFont::systemFontOfSize(13.0),
+                all,
+            );
+        }
+        button.setAttributedTitle(&attr);
+    });
 }
 
 fn set_body(text: &NSTextView, body: &str, kind: FormatKind) {
@@ -96,6 +141,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
                 set_body(text, &body, kind);
             }
         });
+        style_copy_button(false);
         return Ok(());
     }
 
@@ -142,7 +188,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
             NSSize::new(116.0, 22.0),
         ),
     );
-    button.setTitle(&NSString::from_str("Copy"));
+    button.setBordered(true);
     button.setAutoresizingMask(
         NSAutoresizingMaskOptions::ViewMinXMargin | NSAutoresizingMaskOptions::ViewMinYMargin,
     );
@@ -193,7 +239,9 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
 
     TARGET.with(|slot| slot.replace(Some(target)));
     TEXT.with(|slot| slot.replace(Some(text)));
+    BUTTON.with(|slot| slot.replace(Some(button)));
     WINDOW.with(|slot| slot.replace(Some(window)));
+    style_copy_button(false);
     Ok(())
 }
 
