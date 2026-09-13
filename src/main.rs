@@ -1,4 +1,5 @@
 mod clipboard;
+mod format;
 mod icon;
 mod menubar;
 

@@ -1,6 +1,9 @@
-const MAX_MENU_CHARS: usize = 800;
-const MAX_LINE_CHARS: usize = 72;
-const MAX_LINES: usize = 12;
+use crate::format;
+
+const MAX_LABEL_CHARS: usize = 48;
+const MAX_HISTORY: usize = 20;
+const MAX_PREVIEW_LINES: usize = 24;
+const MAX_PREVIEW_LINE_CHARS: usize = 72;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClipboardView {
@@ -21,76 +24,182 @@ impl ClipboardView {
         }
     }
 
-    pub fn menu_lines(&self) -> Vec<String> {
+    pub fn text(&self) -> Option<&str> {
         match self {
-            Self::Empty => vec!["(clipboard is empty)".to_string()],
-            Self::NoText => vec!["(clipboard has no text)".to_string()],
-            Self::Text(text) => preview_lines(text),
+            Self::Text(text) => Some(text),
+            Self::Empty | Self::NoText => None,
+        }
+    }
+
+    pub fn label(&self) -> String {
+        match self {
+            Self::Empty => "(clipboard is empty)".to_string(),
+            Self::NoText => "(clipboard has no text)".to_string(),
+            Self::Text(text) => one_line(text),
         }
     }
 }
 
-pub fn preview_lines(text: &str) -> Vec<String> {
-    let clipped: String = text.chars().take(MAX_MENU_CHARS).collect();
-    let truncated_total = text.chars().count() > MAX_MENU_CHARS;
+#[derive(Debug, Default, Clone)]
+pub struct ClipboardHistory {
+    entries: Vec<String>,
+}
 
+impl ClipboardHistory {
+    pub fn record(&mut self, text: String) {
+        if text.trim().is_empty() {
+            return;
+        }
+        self.entries.retain(|existing| existing != &text);
+        self.entries.insert(0, text);
+        self.entries.truncate(MAX_HISTORY);
+    }
+
+    pub fn get(&self, index: usize) -> Option<&str> {
+        self.entries.get(index).map(String::as_str)
+    }
+
+    pub fn labels(&self) -> Vec<(usize, String)> {
+        self.entries
+            .iter()
+            .enumerate()
+            .map(|(i, text)| (i, one_line(text)))
+            .collect()
+    }
+
+    pub fn clear(&mut self) {
+        self.entries.clear();
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+}
+
+pub fn write_clipboard(text: &str) -> Result<(), String> {
+    let mut cb = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+    cb.set_text(text.to_string()).map_err(|e| e.to_string())
+}
+
+pub fn try_format_json(text: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(text.trim()).ok()?;
+    if !value.is_object() && !value.is_array() {
+        return None;
+    }
+    serde_json::to_string_pretty(&value).ok()
+}
+
+pub fn formatted(text: &str) -> String {
+    format::format_text(text)
+}
+
+pub fn preview_heading(text: &str) -> &'static str {
+    format::detect(text).preview_heading()
+}
+
+pub fn preview_lines(text: &str) -> Vec<String> {
+    let body = formatted(text);
     let mut lines = Vec::new();
-    for raw in clipped.lines() {
-        if lines.len() >= MAX_LINES {
+    for raw in body.lines() {
+        if lines.len() >= MAX_PREVIEW_LINES {
             break;
         }
-        let line = raw.replace('\t', "    ");
-        if line.chars().count() <= MAX_LINE_CHARS {
-            lines.push(if line.is_empty() {
-                " ".to_string()
-            } else {
-                line
-            });
-            continue;
-        }
-        let mut rest: String = line;
-        while !rest.is_empty() && lines.len() < MAX_LINES {
-            let take: String = rest.chars().take(MAX_LINE_CHARS).collect();
-            rest = rest.chars().skip(MAX_LINE_CHARS).collect();
+        let line = if raw.is_empty() { " " } else { raw };
+        if line.chars().count() <= MAX_PREVIEW_LINE_CHARS {
+            lines.push(line.to_string());
+        } else {
+            let take: String = line.chars().take(MAX_PREVIEW_LINE_CHARS).collect();
             lines.push(take);
         }
     }
-
-    if lines.is_empty() {
-        lines.push("(clipboard is empty)".to_string());
-    }
-    if truncated_total || text.lines().count() > MAX_LINES {
-        lines.truncate(MAX_LINES.saturating_sub(1));
+    if body.lines().count() > MAX_PREVIEW_LINES {
+        lines.truncate(MAX_PREVIEW_LINES.saturating_sub(1));
         lines.push("...".to_string());
+    }
+    if lines.is_empty() {
+        lines.push("(empty)".to_string());
     }
     lines
 }
 
+pub fn one_line(text: &str) -> String {
+    let first = text
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("(empty)");
+    let collapsed: String = first.split_whitespace().collect::<Vec<_>>().join(" ");
+    let kind = format::detect(text).label();
+    let raw = if kind.is_empty() {
+        collapsed
+    } else {
+        format!("{kind} {collapsed}")
+    };
+    truncate_label(&raw)
+}
+
+fn truncate_label(label: &str) -> String {
+    if label.chars().count() <= MAX_LABEL_CHARS {
+        return label.to_string();
+    }
+    let mut out: String = label
+        .chars()
+        .take(MAX_LABEL_CHARS.saturating_sub(3))
+        .collect();
+    out.push_str("...");
+    out
+}
+
 #[cfg(test)]
 mod tests {
-    use super::preview_lines;
+    use super::{ClipboardHistory, one_line, preview_lines, try_format_json};
 
     #[test]
-    fn empty_text_becomes_placeholder() {
-        assert_eq!(preview_lines(""), vec!["(clipboard is empty)"]);
+    fn one_line_uses_first_nonempty_line() {
+        assert_eq!(one_line("\n  Hello world  \nmore"), "Hello world");
     }
 
     #[test]
-    fn wraps_long_line() {
-        let long = "a".repeat(80);
-        let lines = preview_lines(&long);
-        assert!(lines[0].len() <= 72);
+    fn one_line_marks_json() {
+        let label = one_line("{\"name\":\"copycraft\"}");
+        assert!(label.starts_with("json "));
+    }
+
+    #[test]
+    fn formats_json_when_valid() {
+        let pretty = try_format_json("{\"name\":\"copycraft\"}").expect("json");
+        assert!(pretty.contains('\n'));
+        assert!(pretty.contains("copycraft"));
+    }
+
+    #[test]
+    fn ignores_non_json() {
+        assert_eq!(try_format_json("hello"), None);
+        assert_eq!(try_format_json("123"), None);
+    }
+
+    #[test]
+    fn preview_shows_pretty_json_lines() {
+        let lines = preview_lines("{\"a\":1}");
+        assert!(lines.iter().any(|l| l.contains('{')));
         assert!(lines.len() >= 2);
     }
 
     #[test]
-    fn caps_line_count() {
-        let text = (0..40)
-            .map(|i| format!("line {i}"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let lines = preview_lines(&text);
-        assert!(lines.len() <= 12);
-        assert_eq!(lines.last().unwrap(), "...");
+    fn one_line_truncates() {
+        let label = one_line(&"a".repeat(80));
+        assert!(label.chars().count() <= 48);
+        assert!(label.ends_with("..."));
+    }
+
+    #[test]
+    fn history_dedupes_and_moves_to_front() {
+        let mut history = ClipboardHistory::default();
+        history.record("one".into());
+        history.record("two".into());
+        history.record("one".into());
+        assert_eq!(history.get(0), Some("one"));
+        assert_eq!(history.get(1), Some("two"));
+        assert_eq!(history.labels().len(), 2);
     }
 }
