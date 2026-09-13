@@ -20,6 +20,7 @@ struct App {
     history: ClipboardHistory,
     last_label: String,
     history_len: usize,
+    preview: Option<String>,
 }
 
 impl ApplicationHandler for App {
@@ -37,11 +38,13 @@ impl ApplicationHandler for App {
                 }
                 "clear" => {
                     self.history.clear();
+                    self.preview = None;
                     self.rebuild_menu(true);
                 }
+                "current" => self.show_current(),
                 id if id.starts_with("hist_") => {
                     if let Ok(index) = id.trim_start_matches("hist_").parse::<usize>() {
-                        self.restore(index);
+                        self.show_history(index);
                     }
                 }
                 _ => {}
@@ -58,13 +61,24 @@ impl ApplicationHandler for App {
 }
 
 impl App {
-    fn restore(&mut self, index: usize) {
-        if let Some(text) = self.history.get(index).map(str::to_string)
-            && clipboard::write_clipboard(&text).is_ok()
-        {
-            self.history.record(text);
-            self.rebuild_menu(true);
+    fn show_current(&mut self) {
+        if let Some(text) = ClipboardView::from_os().text().map(str::to_string) {
+            self.open_formatted(&text);
         }
+    }
+
+    fn show_history(&mut self, index: usize) {
+        if let Some(text) = self.history.get(index).map(str::to_string) {
+            self.open_formatted(&text);
+        }
+    }
+
+    fn open_formatted(&mut self, text: &str) {
+        let shown = clipboard::formatted(text);
+        let _ = clipboard::write_clipboard(&shown);
+        self.history.record(shown.clone());
+        self.preview = Some(shown);
+        self.rebuild_menu(true);
     }
 
     fn rebuild_menu(&mut self, force: bool) {
@@ -83,7 +97,26 @@ impl App {
 
         let menu = Menu::new();
         let _ = menu.append(&MenuItem::new("Current", false, None));
-        let _ = menu.append(&MenuItem::new(format!("• {label}"), false, None));
+        let _ = menu.append(&MenuItem::with_id(
+            "current",
+            format!("• {label}"),
+            true,
+            None,
+        ));
+
+        if let Some(preview) = &self.preview {
+            let _ = menu.append(&PredefinedMenuItem::separator());
+            let heading = if clipboard::try_format_json(preview).is_some() {
+                "Formatted JSON"
+            } else {
+                "Content"
+            };
+            let _ = menu.append(&MenuItem::new(heading, false, None));
+            for line in clipboard::preview_lines(preview) {
+                let _ = menu.append(&MenuItem::new(line, false, None));
+            }
+        }
+
         let _ = menu.append(&PredefinedMenuItem::separator());
         let _ = menu.append(&MenuItem::new("History", false, None));
 
@@ -126,6 +159,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         history: ClipboardHistory::default(),
         last_label: String::new(),
         history_len: 0,
+        preview: None,
     };
     app.rebuild_menu(true);
 

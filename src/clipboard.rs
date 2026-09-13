@@ -1,5 +1,7 @@
 const MAX_LABEL_CHARS: usize = 48;
 const MAX_HISTORY: usize = 20;
+const MAX_PREVIEW_LINES: usize = 24;
+const MAX_PREVIEW_LINE_CHARS: usize = 72;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClipboardView {
@@ -77,6 +79,43 @@ pub fn write_clipboard(text: &str) -> Result<(), String> {
     cb.set_text(text.to_string()).map_err(|e| e.to_string())
 }
 
+pub fn try_format_json(text: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(text.trim()).ok()?;
+    if !value.is_object() && !value.is_array() {
+        return None;
+    }
+    serde_json::to_string_pretty(&value).ok()
+}
+
+pub fn formatted(text: &str) -> String {
+    try_format_json(text).unwrap_or_else(|| text.to_string())
+}
+
+pub fn preview_lines(text: &str) -> Vec<String> {
+    let body = formatted(text);
+    let mut lines = Vec::new();
+    for raw in body.lines() {
+        if lines.len() >= MAX_PREVIEW_LINES {
+            break;
+        }
+        let line = if raw.is_empty() { " " } else { raw };
+        if line.chars().count() <= MAX_PREVIEW_LINE_CHARS {
+            lines.push(line.to_string());
+        } else {
+            let take: String = line.chars().take(MAX_PREVIEW_LINE_CHARS).collect();
+            lines.push(take);
+        }
+    }
+    if body.lines().count() > MAX_PREVIEW_LINES {
+        lines.truncate(MAX_PREVIEW_LINES.saturating_sub(1));
+        lines.push("...".to_string());
+    }
+    if lines.is_empty() {
+        lines.push("(empty)".to_string());
+    }
+    lines
+}
+
 pub fn one_line(text: &str) -> String {
     let first = text
         .lines()
@@ -94,14 +133,14 @@ pub fn one_line(text: &str) -> String {
 }
 
 fn classify(text: &str) -> &'static str {
-    let trimmed = text.trim_start();
-    if trimmed.starts_with('{') || trimmed.starts_with('[') {
+    if try_format_json(text).is_some() {
         "json"
-    } else if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+    } else if text.trim_start().starts_with("http://") || text.trim_start().starts_with("https://")
+    {
         "url"
-    } else if trimmed.starts_with('<') {
+    } else if text.trim_start().starts_with('<') {
         "xml"
-    } else if trimmed.contains('\n') {
+    } else if text.contains('\n') {
         "text"
     } else {
         ""
@@ -119,7 +158,7 @@ fn truncate_label(label: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{ClipboardHistory, one_line};
+    use super::{ClipboardHistory, one_line, preview_lines, try_format_json};
 
     #[test]
     fn one_line_uses_first_nonempty_line() {
@@ -128,8 +167,28 @@ mod tests {
 
     #[test]
     fn one_line_marks_json() {
-        let label = one_line("{\"name\": \"copycraft\"}");
+        let label = one_line("{\"name\":\"copycraft\"}");
         assert!(label.starts_with("json "));
+    }
+
+    #[test]
+    fn formats_json_when_valid() {
+        let pretty = try_format_json("{\"name\":\"copycraft\"}").expect("json");
+        assert!(pretty.contains('\n'));
+        assert!(pretty.contains("copycraft"));
+    }
+
+    #[test]
+    fn ignores_non_json() {
+        assert_eq!(try_format_json("hello"), None);
+        assert_eq!(try_format_json("123"), None);
+    }
+
+    #[test]
+    fn preview_shows_pretty_json_lines() {
+        let lines = preview_lines("{\"a\":1}");
+        assert!(lines.iter().any(|l| l.contains('{')));
+        assert!(lines.len() >= 2);
     }
 
     #[test]
