@@ -1,5 +1,12 @@
+mod clipboard;
+mod icon;
+mod menubar;
+
 fn main() {
-    println!("copycraft");
+    if let Err(e) = menubar::run() {
+        eprintln!("copycraft failed: {e}");
+        std::process::exit(1);
+    }
 }
 
 #[cfg(test)]
