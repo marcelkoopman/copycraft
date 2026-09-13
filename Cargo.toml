@@ -17,3 +17,6 @@ minimum_system_version = "10.13"
 info_plist_entries = { LSUIElement = true }
 
 [dependencies]
+arboard = "3"
+tray-icon = "0.21"
+winit = "0.30"
