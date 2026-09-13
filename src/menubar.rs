@@ -118,12 +118,11 @@ impl App {
     fn rebuild_menu(&mut self, force: bool) {
         self.auto_format();
         let view = ClipboardView::from_os();
-        if let Some(text) = view.text() {
-            if self.should_record(text) {
+        if let Some(text) = view.text()
+            && self.should_record(text) {
                 self.skip_record = None;
                 self.history.record(text.to_string());
             }
-        }
 
         let label = view.label();
         let history_len = self.history.labels().len();
