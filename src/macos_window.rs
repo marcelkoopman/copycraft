@@ -3,8 +3,8 @@
 use std::cell::RefCell;
 
 use objc2::rc::{Allocated, Retained};
-use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol};
-use objc2::{define_class, msg_send, sel, DefinedClass, MainThreadMarker, MainThreadOnly};
+use objc2::runtime::{AnyObject, NSObject};
+use objc2::{define_class, msg_send, sel, AnyThread, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
     NSApplication, NSAutoresizingMaskOptions, NSBackingStoreType, NSButton, NSColor, NSControl,
     NSFont, NSFontWeightRegular, NSForegroundColorAttributeName, NSScrollView, NSTextView,
@@ -85,8 +85,10 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     );
     button.setTitle(&NSString::from_str("Copy to clipboard"));
     let target = CopyTarget::new(mtm);
-    button.setTarget(Some(&target));
-    unsafe { button.setAction(Some(sel!(copyClicked:))) };
+    unsafe {
+        button.setTarget(Some(&target));
+        button.setAction(Some(sel!(copyClicked:)));
+    }
 
     let scroll = NSScrollView::initWithFrame(
         NSScrollView::alloc(mtm),
@@ -110,7 +112,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     ));
     let weight = unsafe { NSFontWeightRegular };
     text.setFont(Some(&NSFont::monospacedSystemFontOfSize_weight(13.0, weight)));
-    if let Some(storage) = text.textStorage() {
+    if let Some(storage) = unsafe { text.textStorage() } {
         storage.setAttributedString(&colored_text(&body, kind));
     } else {
         text.setString(&NSString::from_str(&body));
@@ -131,7 +133,8 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
 
 fn colored_text(source: &str, kind: FormatKind) -> Retained<NSMutableAttributedString> {
     let ns = NSString::from_str(source);
-    let attr = NSMutableAttributedString::initWithString(NSMutableAttributedString::alloc(), &ns);
+    let attr =
+        NSMutableAttributedString::initWithString(NSMutableAttributedString::alloc(), &ns);
     let mut offset = 0usize;
     for (token_kind, token) in highlight::tokens(source, kind) {
         let len = token.encode_utf16().count();
