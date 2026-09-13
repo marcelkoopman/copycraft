@@ -2,6 +2,10 @@
 
 macOS menubar app that transforms clipboard content into another format, for example JSON formatting.
 
+## Downloads
+
+Klaar-voor-gebruik builds staan op de [Releases](https://github.com/marcelkoopman/copycraft/releases)-pagina (signed `.app` + `.dmg`).
+
 ## Pipeline
 
 Same layout as [ticker](https://github.com/marcelkoopman/ticker):
