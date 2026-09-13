@@ -18,5 +18,5 @@ info_plist_entries = { LSUIElement = true }
 
 [dependencies]
 arboard = "3"
-tray-icon = "0.21"
+tray-icon = "0.25"
 winit = "0.30"
