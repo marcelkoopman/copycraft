@@ -69,10 +69,11 @@ pub fn format_text(text: &str) -> String {
         FormatKind::Json => {
             crate::clipboard::try_format_json(text).unwrap_or_else(|| text.to_string())
         }
-        FormatKind::Yaml => crate::transform::yaml_to_json(text).unwrap_or_else(|_| text.to_string()),
         FormatKind::Rust => format_rust(text),
         FormatKind::Java => indent_braces(text),
-        _ => text.to_string(),
+        FormatKind::Yaml | FormatKind::Url | FormatKind::Xml | FormatKind::Text | FormatKind::Plain => {
+            text.to_string()
+        }
     }
 }
 
