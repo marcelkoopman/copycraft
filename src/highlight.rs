@@ -79,9 +79,9 @@ fn tokenize_json(source: &str) -> Vec<(TokenKind, String)> {
 
 fn tokenize_rust(source: &str) -> Vec<(TokenKind, String)> {
     let keywords = [
-        "fn", "let", "mut", "pub", "impl", "struct", "enum", "match", "if", "else", "use",
-        "mod", "return", "async", "await", "self", "Self", "crate", "const", "static", "as",
-        "where", "for", "in", "loop", "while", "break", "continue", "ref", "move",
+        "fn", "let", "mut", "pub", "impl", "struct", "enum", "match", "if", "else", "use", "mod",
+        "return", "async", "await", "self", "Self", "crate", "const", "static", "as", "where",
+        "for", "in", "loop", "while", "break", "continue", "ref", "move",
     ];
     let mut out = Vec::new();
     let chars: Vec<char> = source.chars().collect();
@@ -103,7 +103,8 @@ fn tokenize_rust(source: &str) -> Vec<(TokenKind, String)> {
             continue;
         }
         if ch.is_ascii_alphabetic() || ch == '_' {
-            let (mut token, mut next) = take_while(&chars, i, |c| c.is_ascii_alphanumeric() || c == '_');
+            let (mut token, mut next) =
+                take_while(&chars, i, |c| c.is_ascii_alphanumeric() || c == '_');
             if next < chars.len() && chars[next] == '!' {
                 token.push('!');
                 next += 1;
@@ -146,8 +147,23 @@ fn tokenize_rust(source: &str) -> Vec<(TokenKind, String)> {
 fn tokenize_code(source: &str, kind: FormatKind) -> Vec<(TokenKind, String)> {
     let keywords: &[&str] = match kind {
         FormatKind::Java => &[
-            "public", "private", "protected", "class", "static", "void", "int", "long",
-            "boolean", "return", "if", "else", "new", "package", "import", "final", "this",
+            "public",
+            "private",
+            "protected",
+            "class",
+            "static",
+            "void",
+            "int",
+            "long",
+            "boolean",
+            "return",
+            "if",
+            "else",
+            "new",
+            "package",
+            "import",
+            "final",
+            "this",
         ],
         _ => &[],
     };
@@ -240,14 +256,26 @@ mod tests {
     #[test]
     fn json_marks_keys_and_numbers() {
         let toks = tokens("{\"name\":1}", FormatKind::Json);
-        assert!(toks.iter().any(|(k, v)| *k == TokenKind::Key && v.contains("name")));
-        assert!(toks.iter().any(|(k, v)| *k == TokenKind::Number && v == "1"));
+        assert!(
+            toks.iter()
+                .any(|(k, v)| *k == TokenKind::Key && v.contains("name"))
+        );
+        assert!(
+            toks.iter()
+                .any(|(k, v)| *k == TokenKind::Number && v == "1")
+        );
     }
 
     #[test]
     fn rust_marks_fn_name_and_macro() {
         let toks = tokens("fn main() { eprintln!(\"x\"); }", FormatKind::Rust);
-        assert!(toks.iter().any(|(k, v)| *k == TokenKind::Function && v == "main"));
-        assert!(toks.iter().any(|(k, v)| *k == TokenKind::Macro && v == "eprintln!"));
+        assert!(
+            toks.iter()
+                .any(|(k, v)| *k == TokenKind::Function && v == "main")
+        );
+        assert!(
+            toks.iter()
+                .any(|(k, v)| *k == TokenKind::Macro && v == "eprintln!")
+        );
     }
 }

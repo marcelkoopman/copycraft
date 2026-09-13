@@ -4,15 +4,13 @@ use std::cell::RefCell;
 
 use objc2::rc::{Allocated, Retained};
 use objc2::runtime::{AnyObject, NSObject};
-use objc2::{define_class, msg_send, sel, AnyThread, MainThreadMarker, MainThreadOnly};
+use objc2::{AnyThread, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSApplication, NSAutoresizingMaskOptions, NSBackingStoreType, NSButton, NSColor, NSControl,
     NSFont, NSFontAttributeName, NSForegroundColorAttributeName, NSScrollView, NSTextView,
     NSWindow, NSWindowStyleMask,
 };
-use objc2_foundation::{
-    NSMutableAttributedString, NSPoint, NSRange, NSRect, NSSize, NSString,
-};
+use objc2_foundation::{NSMutableAttributedString, NSPoint, NSRange, NSRect, NSSize, NSString};
 
 use crate::clipboard;
 use crate::format::FormatKind;
@@ -95,9 +93,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     window.setTitle(&NSString::from_str(&format!("{title} — Copycraft")));
     window.setBackgroundColor(Some(&editor_bg()));
 
-    let content = window
-        .contentView()
-        .ok_or("window has no content view")?;
+    let content = window.contentView().ok_or("window has no content view")?;
 
     let button = NSButton::initWithFrame(
         NSButton::alloc(mtm),
@@ -152,8 +148,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
 
 fn colored_text(source: &str, kind: FormatKind) -> Retained<NSMutableAttributedString> {
     let ns = NSString::from_str(source);
-    let attr =
-        NSMutableAttributedString::initWithString(NSMutableAttributedString::alloc(), &ns);
+    let attr = NSMutableAttributedString::initWithString(NSMutableAttributedString::alloc(), &ns);
     let all = NSRange {
         location: 0,
         length: ns.length(),
@@ -187,12 +182,20 @@ fn color_for(kind: TokenKind) -> Retained<NSColor> {
         TokenKind::Key | TokenKind::Function => {
             NSColor::colorWithCalibratedRed_green_blue_alpha(0.48, 0.69, 0.97, 1.0)
         }
-        TokenKind::String => NSColor::colorWithCalibratedRed_green_blue_alpha(0.62, 0.80, 0.42, 1.0),
-        TokenKind::Number => NSColor::colorWithCalibratedRed_green_blue_alpha(0.86, 0.61, 0.36, 1.0),
-        TokenKind::Keyword => NSColor::colorWithCalibratedRed_green_blue_alpha(0.78, 0.63, 0.97, 1.0),
+        TokenKind::String => {
+            NSColor::colorWithCalibratedRed_green_blue_alpha(0.62, 0.80, 0.42, 1.0)
+        }
+        TokenKind::Number => {
+            NSColor::colorWithCalibratedRed_green_blue_alpha(0.86, 0.61, 0.36, 1.0)
+        }
+        TokenKind::Keyword => {
+            NSColor::colorWithCalibratedRed_green_blue_alpha(0.78, 0.63, 0.97, 1.0)
+        }
         TokenKind::Type => NSColor::colorWithCalibratedRed_green_blue_alpha(0.45, 0.80, 0.93, 1.0),
         TokenKind::Macro => NSColor::colorWithCalibratedRed_green_blue_alpha(0.48, 0.69, 0.97, 1.0),
-        TokenKind::Comment => NSColor::colorWithCalibratedRed_green_blue_alpha(0.45, 0.48, 0.55, 1.0),
+        TokenKind::Comment => {
+            NSColor::colorWithCalibratedRed_green_blue_alpha(0.45, 0.48, 0.55, 1.0)
+        }
         TokenKind::Punct => NSColor::colorWithCalibratedRed_green_blue_alpha(0.62, 0.65, 0.72, 1.0),
         TokenKind::Text => NSColor::colorWithCalibratedRed_green_blue_alpha(0.78, 0.80, 0.86, 1.0),
     }
