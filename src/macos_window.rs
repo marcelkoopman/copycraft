@@ -141,7 +141,10 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
 
     let text = NSTextView::initWithFrame(
         NSTextView::alloc(mtm),
-        NSRect::new(NSPoint::new(16.0, 0.0), NSSize::new(width - 24.0, height - titlebar)),
+        NSRect::new(
+            NSPoint::new(16.0, 0.0),
+            NSSize::new(width - 24.0, height - titlebar),
+        ),
     );
     text.setEditable(false);
     text.setSelectable(true);
@@ -204,12 +207,20 @@ fn color_for(kind: TokenKind) -> Retained<NSColor> {
         TokenKind::Key | TokenKind::Function => {
             NSColor::colorWithCalibratedRed_green_blue_alpha(0.48, 0.69, 0.97, 1.0)
         }
-        TokenKind::String => NSColor::colorWithCalibratedRed_green_blue_alpha(0.62, 0.80, 0.42, 1.0),
-        TokenKind::Number => NSColor::colorWithCalibratedRed_green_blue_alpha(0.86, 0.61, 0.36, 1.0),
-        TokenKind::Keyword => NSColor::colorWithCalibratedRed_green_blue_alpha(0.78, 0.63, 0.97, 1.0),
+        TokenKind::String => {
+            NSColor::colorWithCalibratedRed_green_blue_alpha(0.62, 0.80, 0.42, 1.0)
+        }
+        TokenKind::Number => {
+            NSColor::colorWithCalibratedRed_green_blue_alpha(0.86, 0.61, 0.36, 1.0)
+        }
+        TokenKind::Keyword => {
+            NSColor::colorWithCalibratedRed_green_blue_alpha(0.78, 0.63, 0.97, 1.0)
+        }
         TokenKind::Type => NSColor::colorWithCalibratedRed_green_blue_alpha(0.45, 0.80, 0.93, 1.0),
         TokenKind::Macro => NSColor::colorWithCalibratedRed_green_blue_alpha(0.48, 0.69, 0.97, 1.0),
-        TokenKind::Comment => NSColor::colorWithCalibratedRed_green_blue_alpha(0.45, 0.48, 0.55, 1.0),
+        TokenKind::Comment => {
+            NSColor::colorWithCalibratedRed_green_blue_alpha(0.45, 0.48, 0.55, 1.0)
+        }
         TokenKind::Punct => NSColor::colorWithCalibratedRed_green_blue_alpha(0.62, 0.65, 0.72, 1.0),
         TokenKind::Text => NSColor::colorWithCalibratedRed_green_blue_alpha(0.78, 0.80, 0.86, 1.0),
     }

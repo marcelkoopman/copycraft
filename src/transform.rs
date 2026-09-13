@@ -88,7 +88,9 @@ fn parse_yaml(text: &str) -> Result<YamlValue, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Transform, apply, json_to_yaml, looks_like_yaml, minify_json, pretty_yaml, yaml_to_json};
+    use super::{
+        Transform, apply, json_to_yaml, looks_like_yaml, minify_json, pretty_yaml, yaml_to_json,
+    };
 
     #[test]
     fn minifies_json() {

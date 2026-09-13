@@ -74,7 +74,9 @@ pub fn format_text(text: &str) -> String {
         }
         FormatKind::Rust => format_rust(text),
         FormatKind::Java => indent_braces(text),
-        FormatKind::Url | FormatKind::Xml | FormatKind::Text | FormatKind::Plain => text.to_string(),
+        FormatKind::Url | FormatKind::Xml | FormatKind::Text | FormatKind::Plain => {
+            text.to_string()
+        }
     }
 }
 
