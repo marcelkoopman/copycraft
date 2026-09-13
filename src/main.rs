@@ -2,6 +2,7 @@ mod clipboard;
 mod format;
 mod icon;
 mod menubar;
+mod preview;
 
 fn main() {
     if let Err(e) = menubar::run() {

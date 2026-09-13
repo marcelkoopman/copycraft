@@ -11,7 +11,9 @@ use winit::{
 };
 
 use crate::clipboard::{self, ClipboardHistory, ClipboardView};
+use crate::format;
 use crate::icon;
+use crate::preview;
 
 const REFRESH: Duration = Duration::from_millis(400);
 
@@ -20,7 +22,6 @@ struct App {
     history: ClipboardHistory,
     last_label: String,
     history_len: usize,
-    preview: Option<String>,
 }
 
 impl ApplicationHandler for App {
@@ -38,7 +39,6 @@ impl ApplicationHandler for App {
                 }
                 "clear" => {
                     self.history.clear();
-                    self.preview = None;
                     self.rebuild_menu(true);
                 }
                 "current" => self.show_current(),
@@ -63,21 +63,22 @@ impl ApplicationHandler for App {
 impl App {
     fn show_current(&mut self) {
         if let Some(text) = ClipboardView::from_os().text().map(str::to_string) {
-            self.open_formatted(&text);
+            self.open_preview(&text);
         }
     }
 
     fn show_history(&mut self, index: usize) {
         if let Some(text) = self.history.get(index).map(str::to_string) {
-            self.open_formatted(&text);
+            self.open_preview(&text);
         }
     }
 
-    fn open_formatted(&mut self, text: &str) {
+    fn open_preview(&mut self, text: &str) {
         let shown = clipboard::formatted(text);
-        let _ = clipboard::write_clipboard(&shown);
-        self.history.record(shown.clone());
-        self.preview = Some(shown);
+        let kind = format::detect(&shown);
+        if let Err(e) = preview::show(&shown, kind) {
+            eprintln!("preview failed: {e}");
+        }
         self.rebuild_menu(true);
     }
 
@@ -103,19 +104,6 @@ impl App {
             true,
             None,
         ));
-
-        if let Some(preview) = &self.preview {
-            let _ = menu.append(&PredefinedMenuItem::separator());
-            let _ = menu.append(&MenuItem::new(
-                clipboard::preview_heading(preview),
-                false,
-                None,
-            ));
-            for line in clipboard::preview_lines(preview) {
-                let _ = menu.append(&MenuItem::new(line, false, None));
-            }
-        }
-
         let _ = menu.append(&PredefinedMenuItem::separator());
         let _ = menu.append(&MenuItem::new("History", false, None));
 
@@ -158,7 +146,6 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         history: ClipboardHistory::default(),
         last_label: String::new(),
         history_len: 0,
-        preview: None,
     };
     app.rebuild_menu(true);
 
