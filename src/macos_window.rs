@@ -20,6 +20,7 @@ use crate::highlight::{self, TokenKind};
 thread_local! {
     static WINDOW: RefCell<Option<Retained<NSWindow>>> = const { RefCell::new(None) };
     static TARGET: RefCell<Option<Retained<CopyTarget>>> = const { RefCell::new(None) };
+    static TEXT: RefCell<Option<Retained<NSTextView>>> = const { RefCell::new(None) };
     static PREVIEW_TEXT: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
@@ -62,6 +63,14 @@ fn editor_font() -> Retained<NSFont> {
     NSFont::monospacedSystemFontOfSize_weight(14.0, 0.0)
 }
 
+fn set_body(text: &NSTextView, body: &str, kind: FormatKind) {
+    if let Some(storage) = unsafe { text.textStorage() } {
+        storage.setAttributedString(&colored_text(body, kind));
+    } else {
+        text.setString(&NSString::from_str(body));
+    }
+}
+
 pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     let mtm = MainThreadMarker::new().ok_or("preview must run on the main thread")?;
     let title = kind.preview_heading();
@@ -71,6 +80,23 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     let app = NSApplication::sharedApplication(mtm);
     #[allow(deprecated)]
     app.activateIgnoringOtherApps(true);
+
+    let reused = WINDOW.with(|slot| slot.borrow().is_some());
+    if reused {
+        WINDOW.with(|slot| {
+            if let Some(window) = slot.borrow().as_ref() {
+                window.setTitle(&NSString::from_str(title));
+                window.makeKeyAndOrderFront(None);
+                window.orderFrontRegardless();
+            }
+        });
+        TEXT.with(|slot| {
+            if let Some(text) = slot.borrow().as_ref() {
+                set_body(text, &body, kind);
+            }
+        });
+        return Ok(());
+    }
 
     let width = 720.0;
     let height = 480.0;
@@ -95,13 +121,13 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     window.setTitlebarAppearsTransparent(true);
     window.setTitleVisibility(NSWindowTitleVisibility::Visible);
     window.setOpaque(false);
+    window.setHasShadow(true);
     window.setBackgroundColor(Some(&NSColor::clearColor()));
+    window.setAlphaValue(0.97);
 
-    let content = window.contentView().ok_or("window has no content view")?;
-    let bounds = content.bounds();
-
+    let bounds = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(width, height));
     let frosted = NSVisualEffectView::initWithFrame(NSVisualEffectView::alloc(mtm), bounds);
-    frosted.setMaterial(NSVisualEffectMaterial::HUDWindow);
+    frosted.setMaterial(NSVisualEffectMaterial::Menu);
     frosted.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
     frosted.setState(NSVisualEffectState::Active);
     frosted.setAutoresizingMask(
@@ -135,6 +161,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     scroll.setHasVerticalScroller(true);
     scroll.setHasHorizontalScroller(false);
     scroll.setDrawsBackground(false);
+    scroll.setBackgroundColor(&NSColor::clearColor());
     scroll.setAutoresizingMask(
         NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
     );
@@ -149,24 +176,22 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     text.setEditable(false);
     text.setSelectable(true);
     text.setDrawsBackground(false);
+    text.setBackgroundColor(&NSColor::clearColor());
     text.setTextContainerInset(NSSize::new(16.0, 12.0));
     text.setFont(Some(&editor_font()));
-    if let Some(storage) = unsafe { text.textStorage() } {
-        storage.setAttributedString(&colored_text(&body, kind));
-    } else {
-        text.setString(&NSString::from_str(&body));
-    }
+    set_body(&text, &body, kind);
     scroll.setDocumentView(Some(&text));
 
     frosted.addSubview(&scroll);
     frosted.addSubview(&button);
-    content.addSubview(&frosted);
+    window.setContentView(Some(&frosted));
 
     window.center();
     window.makeKeyAndOrderFront(None);
     window.orderFrontRegardless();
 
     TARGET.with(|slot| slot.replace(Some(target)));
+    TEXT.with(|slot| slot.replace(Some(text)));
     WINDOW.with(|slot| slot.replace(Some(window)));
     Ok(())
 }
