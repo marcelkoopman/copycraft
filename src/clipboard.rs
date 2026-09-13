@@ -2,8 +2,6 @@ use crate::format;
 
 const MAX_LABEL_CHARS: usize = 48;
 const MAX_HISTORY: usize = 20;
-const MAX_PREVIEW_LINES: usize = 24;
-const MAX_PREVIEW_LINE_CHARS: usize = 72;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClipboardView {
@@ -93,35 +91,6 @@ pub fn formatted(text: &str) -> String {
     format::format_text(text)
 }
 
-pub fn preview_heading(text: &str) -> &'static str {
-    format::detect(text).preview_heading()
-}
-
-pub fn preview_lines(text: &str) -> Vec<String> {
-    let body = formatted(text);
-    let mut lines = Vec::new();
-    for raw in body.lines() {
-        if lines.len() >= MAX_PREVIEW_LINES {
-            break;
-        }
-        let line = if raw.is_empty() { " " } else { raw };
-        if line.chars().count() <= MAX_PREVIEW_LINE_CHARS {
-            lines.push(line.to_string());
-        } else {
-            let take: String = line.chars().take(MAX_PREVIEW_LINE_CHARS).collect();
-            lines.push(take);
-        }
-    }
-    if body.lines().count() > MAX_PREVIEW_LINES {
-        lines.truncate(MAX_PREVIEW_LINES.saturating_sub(1));
-        lines.push("...".to_string());
-    }
-    if lines.is_empty() {
-        lines.push("(empty)".to_string());
-    }
-    lines
-}
-
 pub fn one_line(text: &str) -> String {
     let first = text
         .lines()
@@ -152,7 +121,7 @@ fn truncate_label(label: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{ClipboardHistory, one_line, preview_lines, try_format_json};
+    use super::{ClipboardHistory, formatted, one_line, try_format_json};
 
     #[test]
     fn one_line_uses_first_nonempty_line() {
@@ -179,10 +148,10 @@ mod tests {
     }
 
     #[test]
-    fn preview_shows_pretty_json_lines() {
-        let lines = preview_lines("{\"a\":1}");
-        assert!(lines.iter().any(|l| l.contains('{')));
-        assert!(lines.len() >= 2);
+    fn formatted_pretty_prints_json() {
+        let pretty = formatted("{\"a\":1}");
+        assert!(pretty.contains('\n'));
+        assert!(pretty.contains('{'));
     }
 
     #[test]
