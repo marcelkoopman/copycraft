@@ -106,12 +106,7 @@ impl App {
 
         if let Some(preview) = &self.preview {
             let _ = menu.append(&PredefinedMenuItem::separator());
-            let heading = if clipboard::try_format_json(preview).is_some() {
-                "Formatted JSON"
-            } else {
-                "Content"
-            };
-            let _ = menu.append(&MenuItem::new(heading, false, None));
+            let _ = menu.append(&MenuItem::new(clipboard::preview_heading(preview), false, None));
             for line in clipboard::preview_lines(preview) {
                 let _ = menu.append(&MenuItem::new(line, false, None));
             }

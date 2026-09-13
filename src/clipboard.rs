@@ -1,3 +1,5 @@
+use crate::format::{self, FormatKind};
+
 const MAX_LABEL_CHARS: usize = 48;
 const MAX_HISTORY: usize = 20;
 const MAX_PREVIEW_LINES: usize = 24;
@@ -88,7 +90,11 @@ pub fn try_format_json(text: &str) -> Option<String> {
 }
 
 pub fn formatted(text: &str) -> String {
-    try_format_json(text).unwrap_or_else(|| text.to_string())
+    format::format_text(text)
+}
+
+pub fn preview_heading(text: &str) -> &'static str {
+    format::detect(text).preview_heading()
 }
 
 pub fn preview_lines(text: &str) -> Vec<String> {
@@ -123,28 +129,13 @@ pub fn one_line(text: &str) -> String {
         .find(|line| !line.is_empty())
         .unwrap_or("(empty)");
     let collapsed: String = first.split_whitespace().collect::<Vec<_>>().join(" ");
-    let kind = classify(text);
-    let raw = if kind.is_empty() {
+    let kind = format::detect(text);
+    let raw = if kind == FormatKind::Plain {
         collapsed
     } else {
-        format!("{kind} {collapsed}")
+        format!("{} {collapsed}", kind.label())
     };
     truncate_label(&raw)
-}
-
-fn classify(text: &str) -> &'static str {
-    if try_format_json(text).is_some() {
-        "json"
-    } else if text.trim_start().starts_with("http://") || text.trim_start().starts_with("https://")
-    {
-        "url"
-    } else if text.trim_start().starts_with('<') {
-        "xml"
-    } else if text.contains('\n') {
-        "text"
-    } else {
-        ""
-    }
 }
 
 fn truncate_label(label: &str) -> String {
