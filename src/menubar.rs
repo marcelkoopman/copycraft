@@ -119,10 +119,11 @@ impl App {
         self.auto_format();
         let view = ClipboardView::from_os();
         if let Some(text) = view.text()
-            && self.should_record(text) {
-                self.skip_record = None;
-                self.history.record(text.to_string());
-            }
+            && self.should_record(text)
+        {
+            self.skip_record = None;
+            self.history.record(text.to_string());
+        }
 
         let label = view.label();
         let history_len = self.history.labels().len();
