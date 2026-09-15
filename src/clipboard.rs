@@ -97,12 +97,12 @@ pub fn one_line(text: &str) -> String {
         .map(str::trim)
         .find(|line| !line.is_empty())
         .unwrap_or("(empty)");
-    let collapsed: String = first.split_whitespace().collect::<Vec<_>>().join(" ");
+    let collapsed: String = first.split_whitespace().collect::<Vec<&str>>().join(" ");
     let kind = format::detect(text).label();
     let raw = if kind.is_empty() {
         collapsed
     } else {
-        format!("{kind} {collapsed}")
+        format!("{kind} | {collapsed}")
     };
     truncate_label(&raw)
 }
@@ -131,13 +131,13 @@ mod tests {
     #[test]
     fn one_line_marks_json() {
         let label = one_line("{\"name\":\"copycraft\"}");
-        assert!(label.starts_with("json "));
+        assert!(label.starts_with("JSON | "));
     }
 
     #[test]
     fn one_line_marks_xml() {
         let label = one_line("<root><item/></root>");
-        assert!(label.starts_with("xml "));
+        assert!(label.starts_with("XML | "));
     }
 
     #[test]

@@ -16,12 +16,12 @@ pub enum FormatKind {
 impl FormatKind {
     pub fn label(self) -> &'static str {
         match self {
-            Self::Json => "json",
-            Self::Yaml => "yaml",
-            Self::Rust => "rust",
-            Self::Java => "java",
-            Self::Url => "url",
-            Self::Xml => "xml",
+            Self::Json => "JSON",
+            Self::Yaml => "YAML",
+            Self::Rust => "Rust",
+            Self::Java => "Java",
+            Self::Url => "URL",
+            Self::Xml => "XML",
             Self::Text | Self::Plain => "",
         }
     }
