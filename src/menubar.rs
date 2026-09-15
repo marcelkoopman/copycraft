@@ -163,6 +163,7 @@ impl App {
         let _ = menu.append(&MenuItem::with_id("quit", "Quit", true, None));
         self.tray.set_menu(Some(Box::new(menu)));
         let _ = self.tray.set_tooltip(Some(label.as_str()));
+        self.tray.set_title(view.menubar_title().as_deref());
     }
 }
 
