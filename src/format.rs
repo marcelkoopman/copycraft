@@ -154,48 +154,47 @@ pub fn pretty_xml(src: &str) -> String {
     }
     let mut out = String::new();
     let mut indent: i32 = 0;
-    let mut pending_text = String::new();
-    let flush_text = |pending: &mut String, out: &mut String, indent: i32| {
-        let text = pending.trim();
-        if !text.is_empty() {
-            push_indent(out, indent);
-            out.push_str(text);
-            out.push('\n');
-        }
-        pending.clear();
-    };
-    for token in tokens {
-        match token {
-            XmlToken::Decl(s) | XmlToken::Comment(s) => {
-                flush_text(&mut pending_text, &mut out, indent);
+    let mut i = 0;
+    while i < tokens.len() {
+        match &tokens[i] {
+            XmlToken::Decl(s) | XmlToken::Comment(s) | XmlToken::Empty(s) => {
                 push_indent(&mut out, indent);
-                out.push_str(&s);
+                out.push_str(s);
                 out.push('\n');
+                i += 1;
             }
-            XmlToken::Open(s) => {
-                flush_text(&mut pending_text, &mut out, indent);
+            XmlToken::Open(open) => {
+                if let Some((line, consumed)) = inline_leaf(&tokens, i) {
+                    push_indent(&mut out, indent);
+                    out.push_str(&line);
+                    out.push('\n');
+                    i += consumed;
+                    continue;
+                }
                 push_indent(&mut out, indent);
-                out.push_str(&s);
+                out.push_str(open);
                 out.push('\n');
                 indent += 1;
+                i += 1;
             }
             XmlToken::Close(s) => {
-                flush_text(&mut pending_text, &mut out, indent);
                 indent = (indent - 1).max(0);
                 push_indent(&mut out, indent);
-                out.push_str(&s);
+                out.push_str(s);
                 out.push('\n');
+                i += 1;
             }
-            XmlToken::Empty(s) => {
-                flush_text(&mut pending_text, &mut out, indent);
-                push_indent(&mut out, indent);
-                out.push_str(&s);
-                out.push('\n');
+            XmlToken::Text(s) => {
+                let text = collapse_xml_text(s);
+                if !text.is_empty() {
+                    push_indent(&mut out, indent);
+                    out.push_str(&text);
+                    out.push('\n');
+                }
+                i += 1;
             }
-            XmlToken::Text(s) => pending_text.push_str(&s),
         }
     }
-    flush_text(&mut pending_text, &mut out, indent);
     if out.ends_with('\n') {
         out.pop();
     }
@@ -204,6 +203,28 @@ pub fn pretty_xml(src: &str) -> String {
     } else {
         out
     }
+}
+
+/// Leaf elements with only text become one line: `<LhNr>012345678L01</LhNr>`.
+fn inline_leaf(tokens: &[XmlToken], i: usize) -> Option<(String, usize)> {
+    let XmlToken::Open(open) = tokens.get(i)? else {
+        return None;
+    };
+    match tokens.get(i + 1) {
+        Some(XmlToken::Close(close)) => Some((format!("{open}{close}"), 2)),
+        Some(XmlToken::Text(text)) => match tokens.get(i + 2) {
+            Some(XmlToken::Close(close)) => {
+                let t = collapse_xml_text(text);
+                Some((format!("{open}{t}{close}"), 3))
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn collapse_xml_text(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 enum XmlToken {
@@ -407,11 +428,34 @@ mod tests {
     #[test]
     fn pretty_prints_xml() {
         let out = pretty_xml("<root><item id=\"1\">hi</item><empty/></root>");
-        assert!(out.contains("    <item id=\"1\">"));
-        assert!(out.contains("        hi"));
-        assert!(out.contains("    </item>"));
+        assert!(out.contains("    <item id=\"1\">hi</item>"));
         assert!(out.contains("    <empty/>"));
-        assert!(out.lines().next().unwrap() == "<root>");
+        assert_eq!(out.lines().next().unwrap(), "<root>");
+        assert!(!out.contains("\n        hi\n"));
+    }
+
+    #[test]
+    fn pretty_prints_xml_leaf_tags_inline() {
+        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<PensioenAangifteResponse>
+    <Bericht>
+        <RespSrt>
+            ACK
+        </RespSrt>
+        <IdBer>
+            123456
+        </IdBer>
+    </Bericht>
+    <SysteemMelding>
+        Het bestand heeft geen geldige extentie.
+    </SysteemMelding>
+</PensioenAangifteResponse>"#;
+        let out = pretty_xml(src);
+        assert!(out.contains("<RespSrt>ACK</RespSrt>"));
+        assert!(out.contains("<IdBer>123456</IdBer>"));
+        assert!(out.contains("<SysteemMelding>Het bestand heeft geen geldige extentie.</SysteemMelding>"));
+        assert!(out.contains("    <Bericht>"));
+        assert!(out.lines().next().unwrap().starts_with("<?xml"));
     }
 
     #[test]
