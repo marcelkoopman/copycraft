@@ -126,7 +126,13 @@ impl App {
         }
 
         let label = view.label();
-        let history_len = self.history.labels().len();
+        let current_text = view.text();
+        let history_len = self
+            .history
+            .labels()
+            .into_iter()
+            .filter(|(index, _)| self.history.get(*index) != current_text)
+            .count();
         if !force && label == self.last_label && history_len == self.history_len {
             return;
         }
@@ -141,10 +147,16 @@ impl App {
         let _ = menu.append(&PredefinedMenuItem::separator());
         let _ = menu.append(&MenuItem::new("History", false, None));
 
-        if self.history.is_empty() {
+        let history_rows: Vec<(usize, String)> = self
+            .history
+            .labels()
+            .into_iter()
+            .filter(|(index, _)| self.history.get(*index) != current_text)
+            .collect();
+        if history_rows.is_empty() {
             let _ = menu.append(&MenuItem::new("(no history yet)", false, None));
         } else {
-            for (index, item_label) in self.history.labels() {
+            for (index, item_label) in history_rows {
                 let id = format!("hist_{index}");
                 let item = MenuItem::with_id(id, item_label, true, None);
                 style_clipboard_item(&item, self.history.get(index), false);
