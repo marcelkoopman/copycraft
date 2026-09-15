@@ -74,7 +74,7 @@ fn draw_brace_right(rgba: &mut [u8]) {
     put(rgba, 21, 20, c);
 }
 
-const BADGE: u32 = 16;
+const BADGE: u32 = 32;
 
 pub fn type_badge(kind: crate::format::FormatKind) -> Option<tray_icon::menu::Icon> {
     let color = kind.badge_color()?;
@@ -97,13 +97,17 @@ fn put_badge(rgba: &mut [u8], x: i32, y: i32, color: [u8; 4]) {
 fn fill_circle_badge(rgba: &mut [u8], color: [u8; 4]) {
     let cx = (BADGE as i32 - 1) as f32 / 2.0;
     let cy = cx;
-    let radius = BADGE as f32 * 0.38;
+    let radius = BADGE as f32 * 0.42;
+    let rim = radius + 1.2;
     for y in 0..BADGE as i32 {
         for x in 0..BADGE as i32 {
             let dx = x as f32 - cx;
             let dy = y as f32 - cy;
-            if dx * dx + dy * dy <= radius * radius {
+            let d2 = dx * dx + dy * dy;
+            if d2 <= radius * radius {
                 put_badge(rgba, x, y, color);
+            } else if d2 <= rim * rim {
+                put_badge(rgba, x, y, [255, 255, 255, 220]);
             }
         }
     }
