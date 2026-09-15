@@ -205,7 +205,6 @@ pub fn pretty_xml(src: &str) -> String {
     }
 }
 
-/// Leaf elements with only text become one line: `<LhNr>012345678L01</LhNr>`.
 fn inline_leaf(tokens: &[XmlToken], i: usize) -> Option<(String, usize)> {
     let XmlToken::Open(open) = tokens.get(i)? else {
         return None;
@@ -224,7 +223,7 @@ fn inline_leaf(tokens: &[XmlToken], i: usize) -> Option<(String, usize)> {
 }
 
 fn collapse_xml_text(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
+    text.split_whitespace().collect::<Vec<&str>>().join(" ")
 }
 
 enum XmlToken {
@@ -445,6 +444,10 @@ mod tests {
         <IdBer>
             123456
         </IdBer>
+        <LhNr>
+            012345678L01
+        </LhNr>
+        <Empty></Empty>
     </Bericht>
     <SysteemMelding>
         Het bestand heeft geen geldige extentie.
@@ -453,8 +456,16 @@ mod tests {
         let out = pretty_xml(src);
         assert!(out.contains("<RespSrt>ACK</RespSrt>"));
         assert!(out.contains("<IdBer>123456</IdBer>"));
-        assert!(out.contains("<SysteemMelding>Het bestand heeft geen geldige extentie.</SysteemMelding>"));
+        assert!(out.contains("<LhNr>012345678L01</LhNr>"));
+        assert!(out.contains("<Empty></Empty>"));
+        assert!(
+            out.contains(
+                "<SysteemMelding>Het bestand heeft geen geldige extentie.</SysteemMelding>"
+            )
+        );
         assert!(out.contains("    <Bericht>"));
+        assert!(!out.contains("\n            ACK\n"));
+        assert!(!out.contains("\n            012345678L01\n"));
         assert!(out.lines().next().unwrap().starts_with("<?xml"));
     }
 
