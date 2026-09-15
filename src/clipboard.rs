@@ -79,6 +79,11 @@ pub fn write_clipboard(text: &str) -> Result<(), String> {
     cb.set_text(text.to_string()).map_err(|e| e.to_string())
 }
 
+pub fn clear_clipboard() -> Result<(), String> {
+    let mut cb = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+    cb.clear().map_err(|e| e.to_string())
+}
+
 pub fn try_format_json(text: &str) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(text.trim()).ok()?;
     if !value.is_object() && !value.is_array() {
@@ -91,20 +96,44 @@ pub fn formatted(text: &str) -> String {
     format::format_text(text)
 }
 
-pub fn one_line(text: &str) -> String {
+pub fn preview_line(text: &str) -> String {
     let first = text
         .lines()
         .map(str::trim)
         .find(|line| !line.is_empty())
         .unwrap_or("(empty)");
-    let collapsed: String = first.split_whitespace().collect::<Vec<&str>>().join(" ");
-    let kind = format::detect(text).label();
-    let raw = if kind.is_empty() {
-        collapsed
+    first.split_whitespace().collect::<Vec<&str>>().join(" ")
+}
+
+pub fn type_and_preview(text: &str) -> (Option<&'static str>, String) {
+    let kind_label = format::detect(text).label();
+    let preview = preview_line(text);
+    if kind_label.is_empty() {
+        (None, truncate_label(&preview))
     } else {
-        format!("{kind} | {collapsed}")
-    };
-    truncate_label(&raw)
+        let budget = MAX_LABEL_CHARS.saturating_sub(kind_label.chars().count() + 3);
+        (Some(kind_label), truncate_to(&preview, budget))
+    }
+}
+
+pub fn one_line(text: &str) -> String {
+    match type_and_preview(text) {
+        (Some(kind), preview) => format!("{kind} | {preview}"),
+        (None, preview) => preview,
+    }
+}
+
+fn truncate_to(label: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
+    if label.chars().count() <= max_chars {
+        return label.to_string();
+    }
+    let keep = max_chars.saturating_sub(3).max(1);
+    let mut out: String = label.chars().take(keep).collect();
+    out.push_str("...");
+    out
 }
 
 fn truncate_label(label: &str) -> String {
@@ -138,6 +167,13 @@ mod tests {
     fn one_line_marks_xml() {
         let label = one_line("<root><item/></root>");
         assert!(label.starts_with("XML | "));
+    }
+
+    #[test]
+    fn type_and_preview_splits_kind() {
+        let (kind, preview) = super::type_and_preview("<root><item/></root>");
+        assert_eq!(kind, Some("XML"));
+        assert!(preview.contains("<root>"));
     }
 
     #[test]

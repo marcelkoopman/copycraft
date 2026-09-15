@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use tray_icon::{
     TrayIcon, TrayIconBuilder, TrayIconEvent,
-    menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
+    menu::{IconMenuItem, Menu, MenuEvent, MenuItem, NativeIcon, PredefinedMenuItem, TextStyle},
 };
 use winit::{
     application::ApplicationHandler,
@@ -22,6 +22,7 @@ struct App {
     history: ClipboardHistory,
     last_label: String,
     history_len: usize,
+    last_kind: Option<format::FormatKind>,
     skip_record: Option<String>,
 }
 
@@ -39,6 +40,7 @@ impl ApplicationHandler for App {
                     return;
                 }
                 "clear" => self.clear_history(),
+                "clear_clipboard" => self.clear_clipboard(),
                 "current" => self.show_current(),
                 id if id.starts_with("hist_") => {
                     if let Ok(index) = id.trim_start_matches("hist_").parse::<usize>() {
@@ -68,6 +70,16 @@ impl App {
         self.history.clear();
         self.last_label.clear();
         self.history_len = 0;
+        self.rebuild_menu(true);
+    }
+
+    fn clear_clipboard(&mut self) {
+        if let Err(e) = clipboard::clear_clipboard() {
+            eprintln!("clear clipboard failed: {e}");
+            return;
+        }
+        self.skip_record = Some(String::new());
+        self.last_label.clear();
         self.rebuild_menu(true);
     }
 
@@ -126,45 +138,118 @@ impl App {
         }
 
         let label = view.label();
-        let history_len = self.history.labels().len();
-        if !force && label == self.last_label && history_len == self.history_len {
+        let current_text = view.text();
+        let history_len = self
+            .history
+            .labels()
+            .into_iter()
+            .filter(|(index, _)| self.history.get(*index) != current_text)
+            .count();
+        let kind = current_text.map(format::detect);
+        if !force
+            && label == self.last_label
+            && history_len == self.history_len
+            && kind == self.last_kind
+        {
             return;
         }
         self.last_label = label.clone();
         self.history_len = history_len;
+        if force || kind != self.last_kind {
+            self.last_kind = kind;
+            let accent = icon::accent_for_kind(kind);
+            match icon::menu_icon_tinted(accent) {
+                Ok(tray_icon) => {
+                    if let Err(e) = self.tray.set_icon_with_as_template(Some(tray_icon), false) {
+                        eprintln!("set tray icon failed: {e}");
+                    }
+                }
+                Err(e) => eprintln!("build tray icon failed: {e}"),
+            }
+        }
+
+        let history_rows: Vec<(usize, String)> = self
+            .history
+            .labels()
+            .into_iter()
+            .filter(|(index, _)| self.history.get(*index) != current_text)
+            .collect();
 
         let menu = Menu::new();
         let _ = menu.append(&MenuItem::new("Current", false, None));
-        let _ = menu.append(&MenuItem::with_id(
-            "current",
-            format!("• {label}"),
-            true,
-            None,
-        ));
+        let current = MenuItem::with_id("current", format!("• {label}"), true, None);
+        style_clipboard_item(&current, view.text(), true);
+        let _ = menu.append(&current);
         let _ = menu.append(&PredefinedMenuItem::separator());
-        let _ = menu.append(&MenuItem::new("History", false, None));
+        let history_title = if history_rows.is_empty() {
+            "History".to_string()
+        } else {
+            format!("History ({})", history_rows.len())
+        };
+        let _ = menu.append(&MenuItem::new(history_title, false, None));
 
-        if self.history.is_empty() {
+        if history_rows.is_empty() {
             let _ = menu.append(&MenuItem::new("(no history yet)", false, None));
         } else {
-            for (index, item_label) in self.history.labels() {
+            for (index, item_label) in history_rows {
                 let id = format!("hist_{index}");
-                let _ = menu.append(&MenuItem::with_id(id, item_label, true, None));
+                let item = MenuItem::with_id(id, item_label, true, None);
+                style_clipboard_item(&item, self.history.get(index), false);
+                let _ = menu.append(&item);
             }
         }
 
         let _ = menu.append(&PredefinedMenuItem::separator());
-        let _ = menu.append(&MenuItem::with_id(
+        let _ = menu.append(&IconMenuItem::with_id_and_native_icon(
+            "clear_clipboard",
+            "Clear clipboard",
+            view.text().is_some(),
+            Some(NativeIcon::TrashEmpty),
+            None,
+        ));
+        let _ = menu.append(&IconMenuItem::with_id_and_native_icon(
             "clear",
             "Clear history",
             !self.history.is_empty(),
+            Some(NativeIcon::TrashFull),
             None,
         ));
-        let _ = menu.append(&MenuItem::with_id("quit", "Quit", true, None));
+        let _ = menu.append(&PredefinedMenuItem::separator());
+        let _ = menu.append(&IconMenuItem::with_id_and_native_icon(
+            "quit",
+            "Quit",
+            true,
+            Some(NativeIcon::StopProgress),
+            None,
+        ));
         self.tray.set_menu(Some(Box::new(menu)));
         let _ = self.tray.set_tooltip(Some(label.as_str()));
         self.tray.set_title(None::<&str>);
     }
+}
+
+fn style_clipboard_item(item: &MenuItem, text: Option<&str>, current: bool) {
+    let Some(text) = text else {
+        return;
+    };
+    let (kind, preview) = clipboard::type_and_preview(text);
+    let Some(kind) = kind else {
+        let plain = if current {
+            format!("• {preview}")
+        } else {
+            preview
+        };
+        item.set_text(plain);
+        return;
+    };
+    let mut parts: Vec<(String, TextStyle)> = Vec::new();
+    if current {
+        parts.push(("• ".into(), TextStyle::Default));
+    }
+    parts.push((kind.into(), TextStyle::Default));
+    parts.push((" | ".into(), TextStyle::Secondary));
+    parts.push((preview, TextStyle::Secondary));
+    item.set_styled_text(parts);
 }
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -175,6 +260,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let tray = TrayIconBuilder::new()
         .with_icon(icon)
+        .with_icon_as_template(false)
         .with_menu(Box::new(menu))
         .with_tooltip("Copycraft")
         .build()?;
@@ -184,6 +270,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         history: ClipboardHistory::default(),
         last_label: String::new(),
         history_len: 0,
+        last_kind: None,
         skip_record: None,
     };
     app.rebuild_menu(true);
