@@ -39,6 +39,7 @@ impl ApplicationHandler for App {
                     return;
                 }
                 "clear" => self.clear_history(),
+                "clear_clipboard" => self.clear_clipboard(),
                 "current" => self.show_current(),
                 id if id.starts_with("hist_") => {
                     if let Ok(index) = id.trim_start_matches("hist_").parse::<usize>() {
@@ -68,6 +69,16 @@ impl App {
         self.history.clear();
         self.last_label.clear();
         self.history_len = 0;
+        self.rebuild_menu(true);
+    }
+
+    fn clear_clipboard(&mut self) {
+        if let Err(e) = clipboard::clear_clipboard() {
+            eprintln!("clear clipboard failed: {e}");
+            return;
+        }
+        self.skip_record = Some(String::new());
+        self.last_label.clear();
         self.rebuild_menu(true);
     }
 
@@ -165,6 +176,12 @@ impl App {
         }
 
         let _ = menu.append(&PredefinedMenuItem::separator());
+        let _ = menu.append(&MenuItem::with_id(
+            "clear_clipboard",
+            "Clear clipboard",
+            view.text().is_some(),
+            None,
+        ));
         let _ = menu.append(&MenuItem::with_id(
             "clear",
             "Clear history",

@@ -79,6 +79,11 @@ pub fn write_clipboard(text: &str) -> Result<(), String> {
     cb.set_text(text.to_string()).map_err(|e| e.to_string())
 }
 
+pub fn clear_clipboard() -> Result<(), String> {
+    let mut cb = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+    cb.clear().map_err(|e| e.to_string())
+}
+
 pub fn try_format_json(text: &str) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(text.trim()).ok()?;
     if !value.is_object() && !value.is_array() {
