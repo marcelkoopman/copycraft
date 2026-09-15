@@ -36,6 +36,18 @@ impl FormatKind {
             _ => "Content",
         }
     }
+
+    pub fn badge_color(self) -> Option<[u8; 4]> {
+        match self {
+            Self::Json => Some([245, 197, 66, 255]),
+            Self::Yaml => Some([203, 123, 239, 255]),
+            Self::Rust => Some([222, 165, 132, 255]),
+            Self::Java => Some([231, 111, 0, 255]),
+            Self::Url => Some([90, 200, 250, 255]),
+            Self::Xml => Some([52, 199, 89, 255]),
+            Self::Text | Self::Plain => None,
+        }
+    }
 }
 
 pub fn detect(text: &str) -> FormatKind {
@@ -416,6 +428,13 @@ mod tests {
     fn detects_yaml() {
         let src = "name: copycraft\nitems:\n  - one\n";
         assert_eq!(detect(src), FormatKind::Yaml);
+    }
+
+    #[test]
+    fn badge_color_for_typed_kinds() {
+        assert_eq!(FormatKind::Rust.badge_color(), Some([222, 165, 132, 255]));
+        assert_eq!(FormatKind::Xml.badge_color(), Some([52, 199, 89, 255]));
+        assert_eq!(FormatKind::Plain.badge_color(), None);
     }
 
     #[test]

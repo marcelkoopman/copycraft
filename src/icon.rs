@@ -74,6 +74,41 @@ fn draw_brace_right(rgba: &mut [u8]) {
     put(rgba, 21, 20, c);
 }
 
+const BADGE: u32 = 16;
+
+pub fn type_badge(kind: crate::format::FormatKind) -> Option<tray_icon::menu::Icon> {
+    let color = kind.badge_color()?;
+    let mut rgba = vec![0u8; (BADGE * BADGE * 4) as usize];
+    fill_circle_badge(&mut rgba, color);
+    tray_icon::menu::Icon::from_rgba(rgba, BADGE, BADGE).ok()
+}
+
+fn put_badge(rgba: &mut [u8], x: i32, y: i32, color: [u8; 4]) {
+    if x < 0 || y < 0 || x >= BADGE as i32 || y >= BADGE as i32 {
+        return;
+    }
+    let i = ((y as u32 * BADGE + x as u32) * 4) as usize;
+    rgba[i] = color[0];
+    rgba[i + 1] = color[1];
+    rgba[i + 2] = color[2];
+    rgba[i + 3] = color[3];
+}
+
+fn fill_circle_badge(rgba: &mut [u8], color: [u8; 4]) {
+    let cx = (BADGE as i32 - 1) as f32 / 2.0;
+    let cy = cx;
+    let radius = BADGE as f32 * 0.38;
+    for y in 0..BADGE as i32 {
+        for x in 0..BADGE as i32 {
+            let dx = x as f32 - cx;
+            let dy = y as f32 - cy;
+            if dx * dx + dy * dy <= radius * radius {
+                put_badge(rgba, x, y, color);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::menu_icon;
@@ -81,5 +116,11 @@ mod tests {
     #[test]
     fn builds_rgba_icon() {
         assert!(menu_icon().is_ok());
+    }
+
+    #[test]
+    fn builds_type_badge_for_rust() {
+        assert!(super::type_badge(crate::format::FormatKind::Rust).is_some());
+        assert!(super::type_badge(crate::format::FormatKind::Plain).is_none());
     }
 }
