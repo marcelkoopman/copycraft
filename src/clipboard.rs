@@ -98,11 +98,14 @@ pub fn one_line(text: &str) -> String {
         .find(|line| !line.is_empty())
         .unwrap_or("(empty)");
     let collapsed: String = first.split_whitespace().collect::<Vec<&str>>().join(" ");
-    let kind = format::detect(text).label();
-    let raw = if kind.is_empty() {
+    let kind = format::detect(text);
+    let kind_label = kind.label();
+    let raw = if kind_label.is_empty() {
         collapsed
+    } else if let Some(badge) = kind.badge_emoji() {
+        format!("{badge} {kind_label} | {collapsed}")
     } else {
-        format!("{kind} | {collapsed}")
+        format!("{kind_label} | {collapsed}")
     };
     truncate_label(&raw)
 }
@@ -131,13 +134,13 @@ mod tests {
     #[test]
     fn one_line_marks_json() {
         let label = one_line("{\"name\":\"copycraft\"}");
-        assert!(label.starts_with("JSON | "));
+        assert!(label.starts_with("🟡 JSON | "));
     }
 
     #[test]
     fn one_line_marks_xml() {
         let label = one_line("<root><item/></root>");
-        assert!(label.starts_with("XML | "));
+        assert!(label.starts_with("🟢 XML | "));
     }
 
     #[test]

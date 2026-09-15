@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use tray_icon::{
     TrayIcon, TrayIconBuilder, TrayIconEvent,
-    menu::{IconMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem},
+    menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
 };
 use winit::{
     application::ApplicationHandler,
@@ -135,14 +135,10 @@ impl App {
 
         let menu = Menu::new();
         let _ = menu.append(&MenuItem::new("Current", false, None));
-        let current_icon = view
-            .text()
-            .and_then(|text| icon::type_badge(format::detect(text)));
-        let _ = menu.append(&IconMenuItem::with_id(
+        let _ = menu.append(&MenuItem::with_id(
             "current",
             format!("• {label}"),
             true,
-            current_icon,
             None,
         ));
         let _ = menu.append(&PredefinedMenuItem::separator());
@@ -153,13 +149,7 @@ impl App {
         } else {
             for (index, item_label) in self.history.labels() {
                 let id = format!("hist_{index}");
-                let item_icon = self
-                    .history
-                    .get(index)
-                    .and_then(|text| icon::type_badge(format::detect(text)));
-                let _ = menu.append(&IconMenuItem::with_id(
-                    id, item_label, true, item_icon, None,
-                ));
+                let _ = menu.append(&MenuItem::with_id(id, item_label, true, None));
             }
         }
 
