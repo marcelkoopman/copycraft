@@ -91,23 +91,44 @@ pub fn formatted(text: &str) -> String {
     format::format_text(text)
 }
 
-pub fn one_line(text: &str) -> String {
+pub fn preview_line(text: &str) -> String {
     let first = text
         .lines()
         .map(str::trim)
         .find(|line| !line.is_empty())
         .unwrap_or("(empty)");
-    let collapsed: String = first.split_whitespace().collect::<Vec<&str>>().join(" ");
-    let kind = format::detect(text);
-    let kind_label = kind.label();
-    let raw = if kind_label.is_empty() {
-        collapsed
-    } else if let Some(badge) = kind.badge_emoji() {
-        format!("{badge} {kind_label} | {collapsed}")
+    first.split_whitespace().collect::<Vec<&str>>().join(" ")
+}
+
+pub fn type_and_preview(text: &str) -> (Option<&'static str>, String) {
+    let kind_label = format::detect(text).label();
+    let preview = preview_line(text);
+    if kind_label.is_empty() {
+        (None, truncate_label(&preview))
     } else {
-        format!("{kind_label} | {collapsed}")
-    };
-    truncate_label(&raw)
+        let budget = MAX_LABEL_CHARS.saturating_sub(kind_label.chars().count() + 3);
+        (Some(kind_label), truncate_to(&preview, budget))
+    }
+}
+
+pub fn one_line(text: &str) -> String {
+    match type_and_preview(text) {
+        (Some(kind), preview) => format!("{kind} | {preview}"),
+        (None, preview) => preview,
+    }
+}
+
+fn truncate_to(label: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
+    if label.chars().count() <= max_chars {
+        return label.to_string();
+    }
+    let keep = max_chars.saturating_sub(3).max(1);
+    let mut out: String = label.chars().take(keep).collect();
+    out.push_str("...");
+    out
 }
 
 fn truncate_label(label: &str) -> String {
@@ -134,13 +155,20 @@ mod tests {
     #[test]
     fn one_line_marks_json() {
         let label = one_line("{\"name\":\"copycraft\"}");
-        assert!(label.starts_with("🟡 JSON | "));
+        assert!(label.starts_with("JSON | "));
     }
 
     #[test]
     fn one_line_marks_xml() {
         let label = one_line("<root><item/></root>");
-        assert!(label.starts_with("🟢 XML | "));
+        assert!(label.starts_with("XML | "));
+    }
+
+    #[test]
+    fn type_and_preview_splits_kind() {
+        let (kind, preview) = super::type_and_preview("<root><item/></root>");
+        assert_eq!(kind, Some("XML"));
+        assert!(preview.contains("<root>"));
     }
 
     #[test]

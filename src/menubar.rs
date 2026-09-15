@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use tray_icon::{
     TrayIcon, TrayIconBuilder, TrayIconEvent,
-    menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
+    menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, TextStyle},
 };
 use winit::{
     application::ApplicationHandler,
@@ -135,12 +135,9 @@ impl App {
 
         let menu = Menu::new();
         let _ = menu.append(&MenuItem::new("Current", false, None));
-        let _ = menu.append(&MenuItem::with_id(
-            "current",
-            format!("• {label}"),
-            true,
-            None,
-        ));
+        let current = MenuItem::with_id("current", format!("• {label}"), true, None);
+        style_clipboard_item(&current, view.text(), true);
+        let _ = menu.append(&current);
         let _ = menu.append(&PredefinedMenuItem::separator());
         let _ = menu.append(&MenuItem::new("History", false, None));
 
@@ -149,7 +146,9 @@ impl App {
         } else {
             for (index, item_label) in self.history.labels() {
                 let id = format!("hist_{index}");
-                let _ = menu.append(&MenuItem::with_id(id, item_label, true, None));
+                let item = MenuItem::with_id(id, item_label, true, None);
+                style_clipboard_item(&item, self.history.get(index), false);
+                let _ = menu.append(&item);
             }
         }
 
@@ -165,6 +164,30 @@ impl App {
         let _ = self.tray.set_tooltip(Some(label.as_str()));
         self.tray.set_title(None::<&str>);
     }
+}
+
+fn style_clipboard_item(item: &MenuItem, text: Option<&str>, current: bool) {
+    let Some(text) = text else {
+        return;
+    };
+    let (kind, preview) = clipboard::type_and_preview(text);
+    let Some(kind) = kind else {
+        let plain = if current {
+            format!("• {preview}")
+        } else {
+            preview
+        };
+        item.set_text(plain);
+        return;
+    };
+    let mut parts: Vec<(String, TextStyle)> = Vec::new();
+    if current {
+        parts.push(("• ".into(), TextStyle::Default));
+    }
+    parts.push((kind.into(), TextStyle::Default));
+    parts.push((" | ".into(), TextStyle::Secondary));
+    parts.push((preview, TextStyle::Secondary));
+    item.set_styled_text(parts);
 }
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {

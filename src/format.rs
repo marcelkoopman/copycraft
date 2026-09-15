@@ -36,18 +36,6 @@ impl FormatKind {
             _ => "Content",
         }
     }
-
-    pub fn badge_emoji(self) -> Option<&'static str> {
-        match self {
-            Self::Json => Some("🟡"),
-            Self::Yaml => Some("🟣"),
-            Self::Rust => Some("🟠"),
-            Self::Java => Some("🟧"),
-            Self::Url => Some("🔵"),
-            Self::Xml => Some("🟢"),
-            Self::Text | Self::Plain => None,
-        }
-    }
 }
 
 pub fn detect(text: &str) -> FormatKind {
@@ -428,13 +416,6 @@ mod tests {
     fn detects_yaml() {
         let src = "name: copycraft\nitems:\n  - one\n";
         assert_eq!(detect(src), FormatKind::Yaml);
-    }
-
-    #[test]
-    fn badge_emoji_for_typed_kinds() {
-        assert_eq!(FormatKind::Rust.badge_emoji(), Some("🟠"));
-        assert_eq!(FormatKind::Xml.badge_emoji(), Some("🟢"));
-        assert_eq!(FormatKind::Plain.badge_emoji(), None);
     }
 
     #[test]
