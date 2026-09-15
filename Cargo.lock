@@ -304,7 +304,7 @@ dependencies = [
 
 [[package]]
 name = "copycraft"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "arboard",
  "objc2 0.6.4",
