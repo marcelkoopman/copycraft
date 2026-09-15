@@ -1,16 +1,41 @@
 use tray_icon::Icon;
 
+use crate::format::FormatKind;
+
 const SIZE: u32 = 32;
+const DEFAULT_ACCENT: [u8; 4] = [96, 140, 255, 255];
+const DEFAULT_TEAL: [u8; 4] = [45, 196, 176, 255];
 
 pub fn menu_icon() -> Result<Icon, Box<dyn std::error::Error>> {
+    menu_icon_tinted(None)
+}
+
+pub fn menu_icon_tinted(accent: Option<[u8; 4]>) -> Result<Icon, Box<dyn std::error::Error>> {
+    let accent = accent.unwrap_or(DEFAULT_ACCENT);
     let mut rgba = vec![0u8; (SIZE * SIZE * 4) as usize];
     fill_round_rect(&mut rgba, 4, 7, 24, 22, 4, [36, 44, 68, 255]);
     fill_round_rect(&mut rgba, 6, 9, 20, 18, 3, [244, 246, 252, 255]);
-    fill_round_rect(&mut rgba, 11, 3, 10, 8, 2, [96, 140, 255, 255]);
+    fill_round_rect(&mut rgba, 11, 3, 10, 8, 2, accent);
     fill_round_rect(&mut rgba, 13, 5, 6, 3, 1, [232, 237, 255, 255]);
-    draw_brace_left(&mut rgba);
-    draw_brace_right(&mut rgba);
+    draw_brace_left(&mut rgba, companion_accent(accent));
+    draw_brace_right(&mut rgba, accent);
     Ok(Icon::from_rgba(rgba, SIZE, SIZE)?)
+}
+
+pub fn accent_for_kind(kind: Option<FormatKind>) -> Option<[u8; 4]> {
+    kind.and_then(FormatKind::accent_rgba)
+}
+
+fn companion_accent(accent: [u8; 4]) -> [u8; 4] {
+    if accent == DEFAULT_ACCENT {
+        return DEFAULT_TEAL;
+    }
+    [
+        accent[0].saturating_add(40),
+        accent[1].saturating_add(20),
+        accent[2].saturating_sub(10),
+        255,
+    ]
 }
 
 fn put(rgba: &mut [u8], x: i32, y: i32, color: [u8; 4]) {
@@ -52,8 +77,7 @@ fn inside_round_rect(px: i32, py: i32, x: i32, y: i32, w: i32, h: i32, r: i32) -
     cx * cx + cy * cy <= r * r
 }
 
-fn draw_brace_left(rgba: &mut [u8]) {
-    let c = [45, 196, 176, 255];
+fn draw_brace_left(rgba: &mut [u8], c: [u8; 4]) {
     for y in 14..26 {
         put(rgba, 11, y, c);
     }
@@ -63,8 +87,7 @@ fn draw_brace_left(rgba: &mut [u8]) {
     put(rgba, 10, 20, c);
 }
 
-fn draw_brace_right(rgba: &mut [u8]) {
-    let c = [96, 140, 255, 255];
+fn draw_brace_right(rgba: &mut [u8], c: [u8; 4]) {
     for y in 14..26 {
         put(rgba, 20, y, c);
     }
@@ -76,10 +99,17 @@ fn draw_brace_right(rgba: &mut [u8]) {
 
 #[cfg(test)]
 mod tests {
-    use super::menu_icon;
+    use super::{menu_icon, menu_icon_tinted};
+    use crate::format::FormatKind;
 
     #[test]
     fn builds_rgba_icon() {
         assert!(menu_icon().is_ok());
+    }
+
+    #[test]
+    fn builds_tinted_icon_for_rust() {
+        let accent = FormatKind::Rust.accent_rgba();
+        assert!(menu_icon_tinted(accent).is_ok());
     }
 }

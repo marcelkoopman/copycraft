@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use tray_icon::{
     TrayIcon, TrayIconBuilder, TrayIconEvent,
-    menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, TextStyle},
+    menu::{IconMenuItem, Menu, MenuEvent, MenuItem, NativeIcon, PredefinedMenuItem, TextStyle},
 };
 use winit::{
     application::ApplicationHandler,
@@ -22,6 +22,7 @@ struct App {
     history: ClipboardHistory,
     last_label: String,
     history_len: usize,
+    last_kind: Option<format::FormatKind>,
     skip_record: Option<String>,
 }
 
@@ -144,19 +145,23 @@ impl App {
             .into_iter()
             .filter(|(index, _)| self.history.get(*index) != current_text)
             .count();
-        if !force && label == self.last_label && history_len == self.history_len {
+        let kind = current_text.map(format::detect);
+        if !force
+            && label == self.last_label
+            && history_len == self.history_len
+            && kind == self.last_kind
+        {
             return;
         }
         self.last_label = label.clone();
         self.history_len = history_len;
-
-        let menu = Menu::new();
-        let _ = menu.append(&MenuItem::new("Current", false, None));
-        let current = MenuItem::with_id("current", format!("• {label}"), true, None);
-        style_clipboard_item(&current, view.text(), true);
-        let _ = menu.append(&current);
-        let _ = menu.append(&PredefinedMenuItem::separator());
-        let _ = menu.append(&MenuItem::new("History", false, None));
+        if kind != self.last_kind {
+            self.last_kind = kind;
+            let accent = icon::accent_for_kind(kind);
+            if let Ok(tray_icon) = icon::menu_icon_tinted(accent) {
+                let _ = self.tray.set_icon(Some(tray_icon));
+            }
+        }
 
         let history_rows: Vec<(usize, String)> = self
             .history
@@ -164,6 +169,20 @@ impl App {
             .into_iter()
             .filter(|(index, _)| self.history.get(*index) != current_text)
             .collect();
+
+        let menu = Menu::new();
+        let _ = menu.append(&MenuItem::new("Current", false, None));
+        let current = MenuItem::with_id("current", format!("• {label}"), true, None);
+        style_clipboard_item(&current, view.text(), true);
+        let _ = menu.append(&current);
+        let _ = menu.append(&PredefinedMenuItem::separator());
+        let history_title = if history_rows.is_empty() {
+            "History".to_string()
+        } else {
+            format!("History ({})", history_rows.len())
+        };
+        let _ = menu.append(&MenuItem::new(history_title, false, None));
+
         if history_rows.is_empty() {
             let _ = menu.append(&MenuItem::new("(no history yet)", false, None));
         } else {
@@ -176,20 +195,28 @@ impl App {
         }
 
         let _ = menu.append(&PredefinedMenuItem::separator());
-        let _ = menu.append(&MenuItem::with_id(
+        let _ = menu.append(&IconMenuItem::with_id_and_native_icon(
             "clear_clipboard",
             "Clear clipboard",
             view.text().is_some(),
+            Some(NativeIcon::TrashEmpty),
             None,
         ));
-        let _ = menu.append(&MenuItem::with_id(
+        let _ = menu.append(&IconMenuItem::with_id_and_native_icon(
             "clear",
             "Clear history",
             !self.history.is_empty(),
+            Some(NativeIcon::TrashFull),
             None,
         ));
         let _ = menu.append(&PredefinedMenuItem::separator());
-        let _ = menu.append(&MenuItem::with_id("quit", "Quit", true, None));
+        let _ = menu.append(&IconMenuItem::with_id_and_native_icon(
+            "quit",
+            "Quit",
+            true,
+            Some(NativeIcon::StopProgress),
+            None,
+        ));
         self.tray.set_menu(Some(Box::new(menu)));
         let _ = self.tray.set_tooltip(Some(label.as_str()));
         self.tray.set_title(None::<&str>);
@@ -237,6 +264,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         history: ClipboardHistory::default(),
         last_label: String::new(),
         history_len: 0,
+        last_kind: None,
         skip_record: None,
     };
     app.rebuild_menu(true);
