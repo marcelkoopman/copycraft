@@ -13,10 +13,10 @@ pub fn menu_icon() -> Result<Icon, Box<dyn std::error::Error>> {
 pub fn menu_icon_tinted(accent: Option<[u8; 4]>) -> Result<Icon, Box<dyn std::error::Error>> {
     let accent = accent.unwrap_or(DEFAULT_ACCENT);
     let mut rgba = vec![0u8; (SIZE * SIZE * 4) as usize];
-    fill_round_rect(&mut rgba, 4, 7, 24, 22, 4, [36, 44, 68, 255]);
-    fill_round_rect(&mut rgba, 6, 9, 20, 18, 3, [244, 246, 252, 255]);
-    fill_round_rect(&mut rgba, 11, 3, 10, 8, 2, accent);
-    fill_round_rect(&mut rgba, 13, 5, 6, 3, 1, [232, 237, 255, 255]);
+    fill_round_rect(&mut rgba, 2, 4, 28, 26, 6, accent);
+    fill_round_rect(&mut rgba, 5, 8, 22, 20, 4, [36, 44, 68, 255]);
+    fill_round_rect(&mut rgba, 7, 10, 18, 16, 3, [244, 246, 252, 255]);
+    fill_round_rect(&mut rgba, 12, 5, 8, 6, 2, accent);
     draw_brace_left(&mut rgba, companion_accent(accent));
     draw_brace_right(&mut rgba, accent);
     Ok(Icon::from_rgba(rgba, SIZE, SIZE)?)

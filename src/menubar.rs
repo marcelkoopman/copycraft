@@ -155,11 +155,16 @@ impl App {
         }
         self.last_label = label.clone();
         self.history_len = history_len;
-        if kind != self.last_kind {
+        if force || kind != self.last_kind {
             self.last_kind = kind;
             let accent = icon::accent_for_kind(kind);
-            if let Ok(tray_icon) = icon::menu_icon_tinted(accent) {
-                let _ = self.tray.set_icon(Some(tray_icon));
+            match icon::menu_icon_tinted(accent) {
+                Ok(tray_icon) => {
+                    if let Err(e) = self.tray.set_icon_with_as_template(Some(tray_icon), false) {
+                        eprintln!("set tray icon failed: {e}");
+                    }
+                }
+                Err(e) => eprintln!("build tray icon failed: {e}"),
             }
         }
 
@@ -255,6 +260,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let tray = TrayIconBuilder::new()
         .with_icon(icon)
+        .with_icon_as_template(false)
         .with_menu(Box::new(menu))
         .with_tooltip("Copycraft")
         .build()?;
