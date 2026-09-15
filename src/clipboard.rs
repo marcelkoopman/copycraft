@@ -36,13 +36,6 @@ impl ClipboardView {
             Self::Text(text) => one_line(text),
         }
     }
-
-    pub fn menubar_title(&self) -> Option<String> {
-        match self {
-            Self::Text(_) => Some(self.label()),
-            Self::Empty | Self::NoText => None,
-        }
-    }
 }
 
 #[derive(Debug, Default, Clone)]
@@ -145,21 +138,6 @@ mod tests {
     fn one_line_marks_xml() {
         let label = one_line("<root><item/></root>");
         assert!(label.starts_with("XML | "));
-    }
-
-    #[test]
-    fn menubar_title_shows_typed_content() {
-        let view = super::ClipboardView::Text("<root><item/></root>".into());
-        assert_eq!(
-            view.menubar_title().as_deref(),
-            Some(one_line("<root><item/></root>").as_str())
-        );
-    }
-
-    #[test]
-    fn menubar_title_hides_when_empty() {
-        assert_eq!(super::ClipboardView::Empty.menubar_title(), None);
-        assert_eq!(super::ClipboardView::NoText.menubar_title(), None);
     }
 
     #[test]
