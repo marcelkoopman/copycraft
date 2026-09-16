@@ -161,13 +161,12 @@ fn tokenize_redacted(source: &str) -> Vec<(TokenKind, String)> {
     let mut out = Vec::new();
     let mut i = 0;
     while i < chars.len() {
-        if chars[i] == '[' {
-            if let Some((tag, end)) = redact_tag_chars(&chars, i) {
+        if chars[i] == '['
+            && let Some((tag, end)) = redact_tag_chars(&chars, i) {
                 out.push((TokenKind::Keyword, tag));
                 i = end;
                 continue;
             }
-        }
         if chars[i] == '"' {
             let (token, next) = take_string(&chars, i);
             out.push((TokenKind::String, token));
