@@ -122,7 +122,6 @@ mod tests {
         assert_eq!(one_line("<root><item/></root>"), "</>");
     }
 
-
     #[test]
     fn menu_mark_hides_content() {
         let mark = super::menu_mark("Naam: Jan de Vries\nE-mailadres: jan@x.nl");
