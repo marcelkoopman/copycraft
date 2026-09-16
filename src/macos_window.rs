@@ -14,24 +14,28 @@ use objc2_app_kit::{
 use objc2_foundation::{NSMutableAttributedString, NSPoint, NSRange, NSRect, NSSize, NSString};
 
 use crate::clipboard;
-use crate::format::FormatKind;
+use crate::format::{self, FormatKind};
 use crate::highlight::{self, TokenKind};
+use crate::redact;
 
 thread_local! {
     static WINDOW: RefCell<Option<Retained<NSWindow>>> = const { RefCell::new(None) };
-    static TARGET: RefCell<Option<Retained<CopyTarget>>> = const { RefCell::new(None) };
+    static TARGET: RefCell<Option<Retained<PreviewTarget>>> = const { RefCell::new(None) };
     static TEXT: RefCell<Option<Retained<NSTextView>>> = const { RefCell::new(None) };
-    static BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
+    static COPY_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
+    static FORMAT_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
+    static REDACT_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
+    static SOURCE_TEXT: RefCell<String> = const { RefCell::new(String::new()) };
     static PREVIEW_TEXT: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
 define_class!(
     #[unsafe(super(NSObject))]
     #[thread_kind = MainThreadOnly]
-    #[name = "CopycraftCopyTarget"]
-    struct CopyTarget;
+    #[name = "CopycraftPreviewTarget"]
+    struct PreviewTarget;
 
-    impl CopyTarget {
+    impl PreviewTarget {
         #[unsafe(method(copyClicked:))]
         fn copy_clicked(&self, _sender: Option<&AnyObject>) {
             PREVIEW_TEXT.with(|text| {
@@ -52,10 +56,22 @@ define_class!(
         fn reset_copy_label(&self, _sender: Option<&AnyObject>) {
             style_copy_button(false);
         }
+
+        #[unsafe(method(formatClicked:))]
+        fn format_clicked(&self, _sender: Option<&AnyObject>) {
+            let body = SOURCE_TEXT.with(|src| clipboard::formatted(&src.borrow()));
+            apply_preview(&body);
+        }
+
+        #[unsafe(method(redactClicked:))]
+        fn redact_clicked(&self, _sender: Option<&AnyObject>) {
+            let body = SOURCE_TEXT.with(|src| redact::redact(&src.borrow()));
+            apply_preview(&body);
+        }
     }
 );
 
-impl CopyTarget {
+impl PreviewTarget {
     fn new(mtm: MainThreadMarker) -> Retained<Self> {
         let this: Allocated<Self> = Self::alloc(mtm);
         unsafe { msg_send![this, init] }
@@ -78,34 +94,37 @@ fn editor_font() -> Retained<NSFont> {
     NSFont::monospacedSystemFontOfSize_weight(14.0, 0.0)
 }
 
+fn style_title_button(button: &NSButton, label: &str, highlight: bool) {
+    let ns = NSString::from_str(label);
+    let attr = NSMutableAttributedString::initWithString(NSMutableAttributedString::alloc(), &ns);
+    let all = NSRange {
+        location: 0,
+        length: ns.length(),
+    };
+    let color = if highlight {
+        NSColor::colorWithCalibratedRed_green_blue_alpha(0.32, 0.84, 0.54, 1.0)
+    } else {
+        NSColor::colorWithCalibratedRed_green_blue_alpha(0.86, 0.89, 0.93, 1.0)
+    };
+    unsafe {
+        attr.addAttribute_value_range(NSForegroundColorAttributeName, &color, all);
+        attr.addAttribute_value_range(
+            NSFontAttributeName,
+            &NSFont::systemFontOfSize(13.0),
+            all,
+        );
+    }
+    button.setAttributedTitle(&attr);
+}
+
 fn style_copy_button(copied: bool) {
-    BUTTON.with(|slot| {
+    COPY_BUTTON.with(|slot| {
         let borrowed = slot.borrow();
         let Some(button) = borrowed.as_ref() else {
             return;
         };
         let label = if copied { "Copied  \u{2713}" } else { "Copy" };
-        let ns = NSString::from_str(label);
-        let attr =
-            NSMutableAttributedString::initWithString(NSMutableAttributedString::alloc(), &ns);
-        let all = NSRange {
-            location: 0,
-            length: ns.length(),
-        };
-        let color = if copied {
-            NSColor::colorWithCalibratedRed_green_blue_alpha(0.32, 0.84, 0.54, 1.0)
-        } else {
-            NSColor::colorWithCalibratedRed_green_blue_alpha(0.86, 0.89, 0.93, 1.0)
-        };
-        unsafe {
-            attr.addAttribute_value_range(NSForegroundColorAttributeName, &color, all);
-            attr.addAttribute_value_range(
-                NSFontAttributeName,
-                &NSFont::systemFontOfSize(13.0),
-                all,
-            );
-        }
-        button.setAttributedTitle(&attr);
+        style_title_button(button, label, copied);
     });
 }
 
@@ -117,10 +136,45 @@ fn set_body(text: &NSTextView, body: &str, kind: FormatKind) {
     }
 }
 
+fn apply_preview(body: &str) {
+    let kind = format::detect(body);
+    PREVIEW_TEXT.with(|slot| slot.replace(body.to_string()));
+    WINDOW.with(|slot| {
+        if let Some(window) = slot.borrow().as_ref() {
+            window.setTitle(&NSString::from_str(kind.preview_heading()));
+        }
+    });
+    TEXT.with(|slot| {
+        if let Some(text) = slot.borrow().as_ref() {
+            set_body(text, body, kind);
+        }
+    });
+    style_copy_button(false);
+}
+
+fn make_title_button(
+    mtm: MainThreadMarker,
+    frame: NSRect,
+    target: &PreviewTarget,
+    action: objc2::runtime::Sel,
+) -> Retained<NSButton> {
+    let button = NSButton::initWithFrame(NSButton::alloc(mtm), frame);
+    button.setBordered(true);
+    button.setAutoresizingMask(
+        NSAutoresizingMaskOptions::ViewMinXMargin | NSAutoresizingMaskOptions::ViewMinYMargin,
+    );
+    unsafe {
+        button.setTarget(Some(target));
+        button.setAction(Some(action));
+    }
+    button
+}
+
 pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     let mtm = MainThreadMarker::new().ok_or("preview must run on the main thread")?;
     let title = kind.preview_heading();
     let body = formatted.to_string();
+    SOURCE_TEXT.with(|slot| slot.replace(body.clone()));
     PREVIEW_TEXT.with(|slot| slot.replace(body.clone()));
 
     let app = NSApplication::sharedApplication(mtm);
@@ -182,22 +236,37 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
         NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
     );
 
-    let button = NSButton::initWithFrame(
-        NSButton::alloc(mtm),
-        NSRect::new(
-            NSPoint::new(width - 132.0, height - titlebar + 3.0),
-            NSSize::new(116.0, 22.0),
-        ),
+    let target = PreviewTarget::new(mtm);
+    let button_y = height - titlebar + 3.0;
+    let button_h = 22.0;
+    let button_w = 88.0;
+    let gap = 8.0;
+    let copy_x = width - button_w - 16.0;
+    let redact_x = copy_x - button_w - gap;
+    let format_x = redact_x - button_w - gap;
+
+    let format_button = make_title_button(
+        mtm,
+        NSRect::new(NSPoint::new(format_x, button_y), NSSize::new(button_w, button_h)),
+        &target,
+        sel!(formatClicked:),
     );
-    button.setBordered(true);
-    button.setAutoresizingMask(
-        NSAutoresizingMaskOptions::ViewMinXMargin | NSAutoresizingMaskOptions::ViewMinYMargin,
+    style_title_button(&format_button, "Format", false);
+
+    let redact_button = make_title_button(
+        mtm,
+        NSRect::new(NSPoint::new(redact_x, button_y), NSSize::new(button_w, button_h)),
+        &target,
+        sel!(redactClicked:),
     );
-    let target = CopyTarget::new(mtm);
-    unsafe {
-        button.setTarget(Some(&target));
-        button.setAction(Some(sel!(copyClicked:)));
-    }
+    style_title_button(&redact_button, "Redact", false);
+
+    let copy_button = make_title_button(
+        mtm,
+        NSRect::new(NSPoint::new(copy_x, button_y), NSSize::new(button_w, button_h)),
+        &target,
+        sel!(copyClicked:),
+    );
 
     let scroll = NSScrollView::initWithFrame(
         NSScrollView::alloc(mtm),
@@ -231,7 +300,9 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     scroll.setDocumentView(Some(&text));
 
     frosted.addSubview(&scroll);
-    frosted.addSubview(&button);
+    frosted.addSubview(&format_button);
+    frosted.addSubview(&redact_button);
+    frosted.addSubview(&copy_button);
     window.setContentView(Some(&frosted));
 
     window.center();
@@ -240,7 +311,9 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
 
     TARGET.with(|slot| slot.replace(Some(target)));
     TEXT.with(|slot| slot.replace(Some(text)));
-    BUTTON.with(|slot| slot.replace(Some(button)));
+    FORMAT_BUTTON.with(|slot| slot.replace(Some(format_button)));
+    REDACT_BUTTON.with(|slot| slot.replace(Some(redact_button)));
+    COPY_BUTTON.with(|slot| slot.replace(Some(copy_button)));
     WINDOW.with(|slot| slot.replace(Some(window)));
     style_copy_button(false);
     Ok(())
