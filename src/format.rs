@@ -9,6 +9,7 @@ pub enum FormatKind {
     Java,
     Url,
     Xml,
+    Dataframe,
     Text,
     Plain,
 }
@@ -22,6 +23,7 @@ impl FormatKind {
             Self::Java => "Jv",
             Self::Url => "://",
             Self::Xml => "</>",
+            Self::Dataframe => "DF",
             Self::Text => "¶",
             Self::Plain => "Aa",
         }
@@ -34,6 +36,7 @@ impl FormatKind {
             Self::Rust => "Formatted Rust",
             Self::Java => "Formatted Java",
             Self::Xml => "Formatted XML",
+            Self::Dataframe => "Dataframe",
             _ => "Content",
         }
     }
@@ -46,6 +49,7 @@ impl FormatKind {
             Self::Java => Some([231, 111, 0, 255]),
             Self::Url => Some([90, 200, 250, 255]),
             Self::Xml => Some([52, 199, 89, 255]),
+            Self::Dataframe => Some([100, 210, 255, 255]),
             Self::Text | Self::Plain => None,
         }
     }
@@ -89,7 +93,9 @@ pub fn format_text(text: &str) -> String {
         FormatKind::Rust => format_rust(text),
         FormatKind::Java => indent_braces(text),
         FormatKind::Xml => pretty_xml(text),
-        FormatKind::Url | FormatKind::Text | FormatKind::Plain => text.to_string(),
+        FormatKind::Url | FormatKind::Dataframe | FormatKind::Text | FormatKind::Plain => {
+            text.to_string()
+        }
     }
 }
 
@@ -422,6 +428,7 @@ mod tests {
         assert_eq!(Java.menu_symbol(), "Jv");
         assert_eq!(Url.menu_symbol(), "://");
         assert_eq!(Xml.menu_symbol(), "</>");
+        assert_eq!(Dataframe.menu_symbol(), "DF");
         assert_eq!(Text.menu_symbol(), "¶");
         assert_eq!(Plain.menu_symbol(), "Aa");
     }
