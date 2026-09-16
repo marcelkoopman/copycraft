@@ -61,7 +61,8 @@ fn apply_toolbar_for_kind(kind: FormatKind) {
     let source = SOURCE_TEXT.with(|slot| slot.borrow().clone());
     let show_redact = toolbar_visibility::shows_redact(kind);
     let show_df = toolbar_visibility::shows_dataframe(kind) || dataframe::try_format(&source).is_some();
-    let show_compress = toolbar_visibility::shows_compress(kind);
+    let show_compress =
+        toolbar_visibility::shows_compress(kind) && compress::is_large_enough(&source);
     set_button_hidden(&REDACT_BUTTON, !show_redact);
     set_button_hidden(&DATAFRAME_BUTTON, !show_df);
     set_button_hidden(&COMPRESS_BUTTON, !show_compress);
