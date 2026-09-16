@@ -12,10 +12,19 @@ fn apply_preview_with_kind(body: &str, kind: FormatKind) {
     });
     TEXT.with(|slot| {
         if let Some(text) = slot.borrow().as_ref() {
-            set_body(text, body, kind);
+            fade_swap_text(text, body, kind);
         }
     });
     flash_button(&COPY_BUTTON, "Copied  \u{2713}", "Copy", copy_flash_color(), false);
+}
+
+fn fade_swap_text(text: &NSTextView, body: &str, kind: FormatKind) {
+    text.setAlphaValue(0.0);
+    set_body(text, body, kind);
+    NSAnimationContext::beginGrouping();
+    NSAnimationContext::currentContext().setDuration(0.28);
+    text.animator().setAlphaValue(1.0);
+    NSAnimationContext::endGrouping();
 }
 
 fn make_toolbar_button(
