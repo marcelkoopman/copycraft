@@ -1,7 +1,21 @@
 use super::{TokenKind, take_string, take_while};
 
 pub(crate) fn looks_redacted(source: &str) -> bool {
-    source.contains('[') && source.contains(']') && redact_tag_at(source, source.find('[').unwrap_or(0)).is_some()
+    source.contains('[') && source.contains(']') && has_redact_tag(source)
+}
+
+fn has_redact_tag(source: &str) -> bool {
+    let chars: Vec<char> = source.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '[' {
+            if redact_tag_chars(&chars, i).is_some() {
+                return true;
+            }
+        }
+        i += 1;
+    }
+    false
 }
 
 pub(crate) fn tokenize_yaml(source: &str) -> Vec<(TokenKind, String)> {
@@ -29,32 +43,26 @@ pub(crate) fn tokenize_yaml(source: &str) -> Vec<(TokenKind, String)> {
             i = next;
             continue;
         }
-        if ch == '"' || ch == '\'' {
-            let quote = ch;
-            let mut j = i + 1;
-            let mut token = String::from(ch);
-            while j < chars.len() && chars[j] != quote {
-                token.push(chars[j]);
-                j += 1;
-            }
-            if j < chars.len() {
-                token.push(chars[j]);
-                j += 1;
-            }
+        if ch == '"' {
+            let (token, next) = take_string(&chars, i);
             out.push((TokenKind::String, token));
-            i = j;
+            i = next;
             line_start = false;
             continue;
         }
-        if ch.is_ascii_digit() || (ch == '-' && i + 1 < chars.len() && chars[i + 1].is_ascii_digit()) {
-            let (token, next) = take_while(&chars, i, |c| c.is_ascii_digit() || matches!(c, '.' | '-' | '+'));
+        if ch.is_ascii_digit()
+            || (ch == '-' && i + 1 < chars.len() && chars[i + 1].is_ascii_digit())
+        {
+            let (token, next) =
+                take_while(&chars, i, |c| c.is_ascii_digit() || matches!(c, '.' | '-' | '+'));
             out.push((TokenKind::Number, token));
             i = next;
             line_start = false;
             continue;
         }
         if ch.is_ascii_alphabetic() || ch == '_' {
-            let (token, next) = take_while(&chars, i, |c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'));
+            let (token, next) =
+                take_while(&chars, i, |c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'));
             let after = skip_ws(&chars, next);
             let kind = if after < chars.len() && chars[after] == ':' {
                 TokenKind::Key
@@ -100,9 +108,9 @@ fn tokenize_df_line(out: &mut Vec<(TokenKind, String)>, line: &str, first: bool)
         out.push((TokenKind::Number, line["shape:".len()..].to_string()));
         return;
     }
+    let headerish = line.contains('\u{2500}') || line.contains('\u{2502}') || line.contains('\u{253c}');
     let chars: Vec<char> = line.chars().collect();
     let mut i = 0;
-    let mut col = 0usize;
     while i < chars.len() {
         let ch = chars[i];
         if is_box(ch) {
@@ -116,24 +124,30 @@ fn tokenize_df_line(out: &mut Vec<(TokenKind, String)>, line: &str, first: bool)
             i = next;
             continue;
         }
-        if ch.is_ascii_digit() || (ch == '-' && i + 1 < chars.len() && chars[i + 1].is_ascii_digit()) {
-            let (token, next) = take_while(&chars, i, |c| c.is_ascii_digit() || matches!(c, '.' | '-' | '+'));
+        if ch.is_ascii_digit()
+            || (ch == '-' && i + 1 < chars.len() && chars[i + 1].is_ascii_digit())
+        {
+            let (token, next) =
+                take_while(&chars, i, |c| c.is_ascii_digit() || matches!(c, '.' | '-' | '+'));
             out.push((TokenKind::Number, token));
             i = next;
             continue;
         }
         if ch.is_ascii_alphabetic() || ch == '_' {
-            let (token, next) = take_while(&chars, i, |c| c.is_ascii_alphanumeric() || matches!(c, '_' | ':'));
-            let kind = if matches!(token.as_str(), "str" | "i64" | "u64" | "i32" | "f64" | "f32" | "bool" | "date" | "datetime" | "null") {
+            let (token, next) =
+                take_while(&chars, i, |c| c.is_ascii_alphanumeric() || matches!(c, '_' | ':'));
+            let kind = if matches!(
+                token.as_str(),
+                "str" | "i64" | "u64" | "i32" | "f64" | "f32" | "bool" | "date" | "datetime" | "null"
+            ) {
                 TokenKind::Type
-            } else if col == 0 || looks_header_row(line) {
+            } else if headerish {
                 TokenKind::Key
             } else {
                 TokenKind::String
             };
             out.push((kind, token));
             i = next;
-            col += 1;
             continue;
         }
         out.push((TokenKind::Text, ch.to_string()));
@@ -141,19 +155,9 @@ fn tokenize_df_line(out: &mut Vec<(TokenKind, String)>, line: &str, first: bool)
     }
 }
 
-fn looks_header_row(line: &str) -> bool {
-    line.contains('\u{2500}') || line.contains('\u{2502}') || line.contains('\u{253c}')
-        || (line.contains("---") && line.contains('\u{2502}'))
-}
-
 fn is_box(ch: char) -> bool {
-    matches!(ch, '‘─'..='╿' | '‘═'..='╬')
-        || matches!(ch, '‘│' | '‘─' | '‘┼' | '‘┬' | '‘┴' | '‘├' | '‘┤' | '‘┌' | '‘┐' | '‘└' | '‘┘' | '‘║' | '‘═' | '‘╠' | '‘╣' | '‘╦' | '‘╩' | '‘╔' | '‘╗' | '‘╚' | '‘╝')
-        || ch == '‘│' || ch == 'τ' || ch == '‘│'
+    matches!(ch, '\u{2500}'..='\u{257F}' | '|')
 }
-
-// τ is greek tau used by polars as column sep in some fonts; also ascii '|'
-// Fix is_box: include '|'
 
 pub(crate) fn tokenize_redacted(source: &str) -> Vec<(TokenKind, String)> {
     let chars: Vec<char> = source.chars().collect();
@@ -174,7 +178,9 @@ pub(crate) fn tokenize_redacted(source: &str) -> Vec<(TokenKind, String)> {
             continue;
         }
         if chars[i].is_ascii_alphabetic() || chars[i] == '_' {
-            let (token, next) = take_while(&chars, i, |c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'));
+            let (token, next) = take_while(&chars, i, |c| {
+                c.is_ascii_alphanumeric() || matches!(c, '_' | '-')
+            });
             let after = skip_ws(&chars, next);
             let kind = if after < chars.len() && chars[after] == ':' {
                 TokenKind::Key
@@ -197,19 +203,8 @@ pub(crate) fn tokenize_redacted(source: &str) -> Vec<(TokenKind, String)> {
     out
 }
 
-fn redact_tag_at(source: &str, start: usize) -> Option<&str> {
-    let rest = source.get(start..)?;
-    let end = rest.find(']')?;
-    let tag = &rest[..=end];
-    if tag.len() >= 3 && tag.chars().all(|c| c == '[' || c == ']' || c.is_ascii_uppercase() || c == '_') {
-        Some(tag)
-    } else {
-        None
-    }
-}
-
 fn redact_tag_chars(chars: &[char], i: usize) -> Option<(String, usize)> {
-    if chars[i] != '[' {
+    if chars.get(i) != Some(&'[') {
         return None;
     }
     let mut j = i + 1;
