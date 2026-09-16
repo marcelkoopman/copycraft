@@ -14,6 +14,7 @@ use objc2_app_kit::{
 use objc2_foundation::{NSMutableAttributedString, NSPoint, NSRange, NSRect, NSSize, NSString};
 
 use crate::clipboard;
+use crate::dataframe;
 use crate::format::{self, FormatKind};
 use crate::highlight::{self, TokenKind};
 use crate::redact;
@@ -26,6 +27,7 @@ thread_local! {
     static ORIGINAL_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static FORMAT_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static REDACT_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
+    static DATAFRAME_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static SOURCE_TEXT: RefCell<String> = const { RefCell::new(String::new()) };
     static PREVIEW_TEXT: RefCell<String> = const { RefCell::new(String::new()) };
 }
@@ -117,6 +119,29 @@ define_class!(
         fn reset_redact_label(&self, _sender: Option<&AnyObject>) {
             style_redact_button(false);
         }
+
+        #[unsafe(method(dataframeClicked:))]
+        fn dataframe_clicked(&self, _sender: Option<&AnyObject>) {
+            let body = SOURCE_TEXT.with(|src| dataframe::try_format(&src.borrow()));
+            let Some(body) = body else {
+                return;
+            };
+            apply_preview_with_kind(&body, FormatKind::Dataframe);
+            style_dataframe_button(true);
+            unsafe {
+                let _: () = msg_send![
+                    self,
+                    performSelector: sel!(resetDataframeLabel:),
+                    withObject: None::<&AnyObject>,
+                    afterDelay: 1.6
+                ];
+            }
+        }
+
+        #[unsafe(method(resetDataframeLabel:))]
+        fn reset_dataframe_label(&self, _sender: Option<&AnyObject>) {
+            style_dataframe_button(false);
+        }
     }
 );
 
@@ -176,6 +201,11 @@ fn original_flash_color() -> Retained<NSColor> {
 fn redact_flash_color() -> Retained<NSColor> {
     NSColor::colorWithCalibratedRed_green_blue_alpha(0.80, 0.48, 0.94, 1.0)
 }
+
+fn dataframe_flash_color() -> Retained<NSColor> {
+    NSColor::colorWithCalibratedRed_green_blue_alpha(0.39, 0.82, 1.0, 1.0)
+}
+
 
 fn style_copy_button(copied: bool) {
     COPY_BUTTON.with(|slot| {
@@ -249,6 +279,26 @@ fn style_redact_button(done: bool) {
     });
 }
 
+fn style_dataframe_button(done: bool) {
+    DATAFRAME_BUTTON.with(|slot| {
+        let borrowed = slot.borrow();
+        let Some(button) = borrowed.as_ref() else {
+            return;
+        };
+        let label = if done {
+            "Dataframe  \u{2713}"
+        } else {
+            "Dataframe"
+        };
+        let color = if done {
+            dataframe_flash_color()
+        } else {
+            idle_button_color()
+        };
+        style_title_button(button, label, &color);
+    });
+}
+
 fn set_body(text: &NSTextView, body: &str, kind: FormatKind) {
     if let Some(storage) = unsafe { text.textStorage() } {
         storage.setAttributedString(&colored_text(body, kind));
@@ -258,7 +308,10 @@ fn set_body(text: &NSTextView, body: &str, kind: FormatKind) {
 }
 
 fn apply_preview(body: &str) {
-    let kind = format::detect(body);
+    apply_preview_with_kind(body, format::detect(body));
+}
+
+fn apply_preview_with_kind(body: &str, kind: FormatKind) {
     PREVIEW_TEXT.with(|slot| slot.replace(body.to_string()));
     WINDOW.with(|slot| {
         if let Some(window) = slot.borrow().as_ref() {
@@ -360,10 +413,11 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     let target = PreviewTarget::new(mtm);
     let button_y = height - titlebar + 3.0;
     let button_h = 22.0;
-    let button_w = 92.0;
-    let gap = 6.0;
-    let copy_x = width - button_w - 16.0;
-    let redact_x = copy_x - button_w - gap;
+    let button_w = 84.0;
+    let gap = 4.0;
+    let copy_x = width - button_w - 12.0;
+    let dataframe_x = copy_x - button_w - gap;
+    let redact_x = dataframe_x - button_w - gap;
     let format_x = redact_x - button_w - gap;
     let original_x = format_x - button_w - gap;
 
@@ -399,6 +453,17 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
         sel!(redactClicked:),
     );
     style_title_button(&redact_button, "Redact", &idle_button_color());
+
+    let dataframe_button = make_title_button(
+        mtm,
+        NSRect::new(
+            NSPoint::new(dataframe_x, button_y),
+            NSSize::new(button_w, button_h),
+        ),
+        &target,
+        sel!(dataframeClicked:),
+    );
+    style_title_button(&dataframe_button, "Dataframe", &idle_button_color());
 
     let copy_button = make_title_button(
         mtm,
@@ -445,6 +510,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     frosted.addSubview(&original_button);
     frosted.addSubview(&format_button);
     frosted.addSubview(&redact_button);
+    frosted.addSubview(&dataframe_button);
     frosted.addSubview(&copy_button);
     window.setContentView(Some(&frosted));
 
@@ -457,6 +523,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     ORIGINAL_BUTTON.with(|slot| slot.replace(Some(original_button)));
     FORMAT_BUTTON.with(|slot| slot.replace(Some(format_button)));
     REDACT_BUTTON.with(|slot| slot.replace(Some(redact_button)));
+    DATAFRAME_BUTTON.with(|slot| slot.replace(Some(dataframe_button)));
     COPY_BUTTON.with(|slot| slot.replace(Some(copy_button)));
     WINDOW.with(|slot| slot.replace(Some(window)));
     style_copy_button(false);
