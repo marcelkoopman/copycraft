@@ -1,4 +1,5 @@
 mod clipboard;
+mod compress;
 mod dataframe;
 mod format;
 mod highlight;
