@@ -51,6 +51,64 @@ fn fade_scroll(alpha: f64, duration: f64) {
     });
 }
 
+const TOOLBAR_PAD: f64 = 10.0;
+const TOOLBAR_GAP: f64 = 6.0;
+const TOOLBAR_BTN_W: f64 = 84.0;
+const TOOLBAR_BTN_H: f64 = 24.0;
+const TOOLBAR_H: f64 = 36.0;
+
+fn apply_toolbar_for_kind(kind: FormatKind) {
+    let show_redact = kind.shows_redact();
+    let show_df = kind.shows_dataframe();
+    set_button_hidden(&REDACT_BUTTON, !show_redact);
+    set_button_hidden(&DATAFRAME_BUTTON, !show_df);
+
+    let height = WINDOW.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .map(|w| w.frame().size.height)
+            .unwrap_or(520.0)
+    });
+    let y = height - TOOLBAR_H + ((TOOLBAR_H - TOOLBAR_BTN_H) / 2.0);
+    let mut x = TOOLBAR_PAD;
+    place_button(&ORIGINAL_BUTTON, x, y);
+    x += TOOLBAR_BTN_W + TOOLBAR_GAP;
+    place_button(&FORMAT_BUTTON, x, y);
+    x += TOOLBAR_BTN_W + TOOLBAR_GAP;
+    if show_redact {
+        place_button(&REDACT_BUTTON, x, y);
+        x += TOOLBAR_BTN_W + TOOLBAR_GAP;
+    }
+    if show_df {
+        place_button(&DATAFRAME_BUTTON, x, y);
+    }
+}
+
+fn set_button_hidden(
+    slot: &'static std::thread::LocalKey<RefCell<Option<Retained<NSButton>>>>,
+    hidden: bool,
+) {
+    slot.with(|cell| {
+        if let Some(button) = cell.borrow().as_ref() {
+            button.setHidden(hidden);
+        }
+    });
+}
+
+fn place_button(
+    slot: &'static std::thread::LocalKey<RefCell<Option<Retained<NSButton>>>>,
+    x: f64,
+    y: f64,
+) {
+    slot.with(|cell| {
+        if let Some(button) = cell.borrow().as_ref() {
+            let mut frame = button.frame();
+            frame.origin = NSPoint::new(x, y);
+            button.setFrame(frame);
+        }
+    });
+}
+
 fn make_toolbar_button(
     mtm: MainThreadMarker,
     frame: NSRect,
