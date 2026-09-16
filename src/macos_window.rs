@@ -23,6 +23,7 @@ thread_local! {
     static TARGET: RefCell<Option<Retained<PreviewTarget>>> = const { RefCell::new(None) };
     static TEXT: RefCell<Option<Retained<NSTextView>>> = const { RefCell::new(None) };
     static COPY_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
+    static ORIGINAL_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static FORMAT_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static REDACT_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static SOURCE_TEXT: RefCell<String> = const { RefCell::new(String::new()) };
@@ -55,6 +56,26 @@ define_class!(
         #[unsafe(method(resetCopyLabel:))]
         fn reset_copy_label(&self, _sender: Option<&AnyObject>) {
             style_copy_button(false);
+        }
+
+        #[unsafe(method(originalClicked:))]
+        fn original_clicked(&self, _sender: Option<&AnyObject>) {
+            let body = SOURCE_TEXT.with(|src| src.borrow().clone());
+            apply_preview(&body);
+            style_original_button(true);
+            unsafe {
+                let _: () = msg_send![
+                    self,
+                    performSelector: sel!(resetOriginalLabel:),
+                    withObject: None::<&AnyObject>,
+                    afterDelay: 1.6
+                ];
+            }
+        }
+
+        #[unsafe(method(resetOriginalLabel:))]
+        fn reset_original_label(&self, _sender: Option<&AnyObject>) {
+            style_original_button(false);
         }
 
         #[unsafe(method(formatClicked:))]
@@ -152,6 +173,10 @@ fn format_flash_color() -> Retained<NSColor> {
     NSColor::colorWithCalibratedRed_green_blue_alpha(0.96, 0.77, 0.26, 1.0)
 }
 
+fn original_flash_color() -> Retained<NSColor> {
+    NSColor::colorWithCalibratedRed_green_blue_alpha(0.35, 0.78, 0.98, 1.0)
+}
+
 fn redact_flash_color() -> Retained<NSColor> {
     NSColor::colorWithCalibratedRed_green_blue_alpha(0.80, 0.48, 0.94, 1.0)
 }
@@ -165,6 +190,22 @@ fn style_copy_button(copied: bool) {
         let label = if copied { "Copied  \u{2713}" } else { "Copy" };
         let color = if copied {
             copy_flash_color()
+        } else {
+            idle_button_color()
+        };
+        style_title_button(button, label, &color);
+    });
+}
+
+fn style_original_button(done: bool) {
+    ORIGINAL_BUTTON.with(|slot| {
+        let borrowed = slot.borrow();
+        let Some(button) = borrowed.as_ref() else {
+            return;
+        };
+        let label = if done { "Original  \u{2713}" } else { "Original" };
+        let color = if done {
+            original_flash_color()
         } else {
             idle_button_color()
         };
@@ -315,11 +356,20 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     let target = PreviewTarget::new(mtm);
     let button_y = height - titlebar + 3.0;
     let button_h = 22.0;
-    let button_w = 104.0;
-    let gap = 8.0;
+    let button_w = 92.0;
+    let gap = 6.0;
     let copy_x = width - button_w - 16.0;
     let redact_x = copy_x - button_w - gap;
     let format_x = redact_x - button_w - gap;
+    let original_x = format_x - button_w - gap;
+
+    let original_button = make_title_button(
+        mtm,
+        NSRect::new(NSPoint::new(original_x, button_y), NSSize::new(button_w, button_h)),
+        &target,
+        sel!(originalClicked:),
+    );
+    style_title_button(&original_button, "Original", &idle_button_color());
 
     let format_button = make_title_button(
         mtm,
@@ -376,6 +426,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     scroll.setDocumentView(Some(&text));
 
     frosted.addSubview(&scroll);
+    frosted.addSubview(&original_button);
     frosted.addSubview(&format_button);
     frosted.addSubview(&redact_button);
     frosted.addSubview(&copy_button);
@@ -387,6 +438,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
 
     TARGET.with(|slot| slot.replace(Some(target)));
     TEXT.with(|slot| slot.replace(Some(text)));
+    ORIGINAL_BUTTON.with(|slot| slot.replace(Some(original_button)));
     FORMAT_BUTTON.with(|slot| slot.replace(Some(format_button)));
     REDACT_BUTTON.with(|slot| slot.replace(Some(redact_button)));
     COPY_BUTTON.with(|slot| slot.replace(Some(copy_button)));
