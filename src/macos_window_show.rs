@@ -5,6 +5,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     SOURCE_TEXT.with(|slot| slot.replace(body.clone()));
     PREVIEW_TEXT.with(|slot| slot.replace(body.clone()));
     PREVIEW_KIND.with(|slot| slot.replace(kind));
+    SOURCE_KIND.with(|slot| slot.replace(kind));
 
     let app = NSApplication::sharedApplication(mtm);
     #[allow(deprecated)]
@@ -31,6 +32,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
                 scroll.setAlphaValue(1.0);
             }
         });
+        apply_toolbar_for_kind(kind);
         flash_button(&COPY_BUTTON, "Copied  \u{2713}", "Copy", copy_flash_color(), false);
         flash_button(&SAVE_BUTTON, "Saved  \u{2713}", "Save", save_flash_color(), false);
         return Ok(());
@@ -79,8 +81,6 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     let button_y = height - toolbar_h + ((toolbar_h - button_h) / 2.0);
     let original_x = pad;
     let format_x = original_x + button_w + gap;
-    let redact_x = format_x + button_w + gap;
-    let dataframe_x = redact_x + button_w + gap;
     let copy_x = width - pad - button_w;
     let save_x = copy_x - gap - button_w;
 
@@ -102,7 +102,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     style_title_button(&format_button, "Format", &idle_button_color());
     let redact_button = make_toolbar_button(
         mtm,
-        NSRect::new(NSPoint::new(redact_x, button_y), NSSize::new(button_w, button_h)),
+        NSRect::new(NSPoint::new(format_x, button_y), NSSize::new(button_w, button_h)),
         &target,
         sel!(redactClicked:),
         false,
@@ -110,7 +110,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     style_title_button(&redact_button, "Redact", &idle_button_color());
     let dataframe_button = make_toolbar_button(
         mtm,
-        NSRect::new(NSPoint::new(dataframe_x, button_y), NSSize::new(button_w, button_h)),
+        NSRect::new(NSPoint::new(format_x, button_y), NSSize::new(button_w, button_h)),
         &target,
         sel!(dataframeClicked:),
         false,
@@ -183,6 +183,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     SAVE_BUTTON.with(|slot| slot.replace(Some(save_button)));
     COPY_BUTTON.with(|slot| slot.replace(Some(copy_button)));
     WINDOW.with(|slot| slot.replace(Some(window)));
+    apply_toolbar_for_kind(kind);
     flash_button(&COPY_BUTTON, "Copied  \u{2713}", "Copy", copy_flash_color(), false);
     flash_button(&SAVE_BUTTON, "Saved  \u{2713}", "Save", save_flash_color(), false);
     Ok(())
