@@ -64,7 +64,7 @@ fn save_preview_to_file() -> bool {
     panel.setCanCreateDirectories(true);
     panel.setExtensionHidden(false);
     panel.setNameFieldStringValue(&NSString::from_str(&kind.suggested_filename()));
-    panel.setTitle(&NSString::from_str("Save clipboard"));
+    panel.setTitle(Some(&NSString::from_str("Save clipboard")));
     let ext = NSString::from_str(kind.suggested_extension());
     let types = NSArray::from_slice(&[&*ext]);
     #[allow(deprecated)]
