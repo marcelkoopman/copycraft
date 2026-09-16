@@ -77,7 +77,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     let button_h = 24.0;
     let button_w = 84.0;
     let pad = 10.0;
-    let button_y = height - toolbar_h + ((toolbar_h - button_h) / 2.0);
+    let button_y = (toolbar_h - button_h) / 2.0;
     let original_x = pad;
     let format_x = original_x + button_w + 6.0;
     let copy_x = width - pad - button_w;
@@ -141,7 +141,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
 
     let scroll = NSScrollView::initWithFrame(
         NSScrollView::alloc(mtm),
-        NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(width, height - toolbar_h)),
+        NSRect::new(NSPoint::new(0.0, toolbar_h), NSSize::new(width, height - toolbar_h)),
     );
     scroll.setHasVerticalScroller(true);
     scroll.setHasHorizontalScroller(true);
