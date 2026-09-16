@@ -30,6 +30,9 @@ fn build_engine() -> AnalyzerEngine {
         .add_recognizer(Arc::new(LabeledFieldRecognizer));
     engine
         .recognizer_registry_mut()
+        .add_recognizer(Arc::new(TabularFieldRecognizer));
+    engine
+        .recognizer_registry_mut()
         .add_recognizer(Arc::new(dutch_phone_recognizer()));
     engine
 }
@@ -99,6 +102,144 @@ impl Recognizer for LabeledFieldRecognizer {
         }
         Ok(results)
     }
+}
+
+#[derive(Debug)]
+struct TabularFieldRecognizer;
+
+impl Recognizer for TabularFieldRecognizer {
+    fn name(&self) -> &str {
+        "tabular-field"
+    }
+
+    fn supported_entities(&self) -> &[EntityType] {
+        &[
+            EntityType::Person,
+            EntityType::Location,
+            EntityType::DateTime,
+            EntityType::EmailAddress,
+            EntityType::PhoneNumber,
+        ]
+    }
+
+    fn supports_language(&self, _language: &str) -> bool {
+        true
+    }
+
+    fn analyze(
+        &self,
+        text: &str,
+        _language: &str,
+    ) -> anyhow::Result<Vec<RecognizerResult>> {
+        let Some(table) = parse_pii_table(text) else {
+            return Ok(Vec::new());
+        };
+        let mut results = Vec::new();
+        let mut offset = 0usize;
+        let mut row_index = 0usize;
+        for line in text.split_inclusive('\n') {
+            let content = line.trim_end_matches(['\n', '\r']);
+            if content.trim().is_empty() {
+                offset += line.len();
+                continue;
+            }
+            if row_index > 0 {
+                for (col, entity) in &table.pii_columns {
+                    if let Some((start_in_line, end_in_line)) =
+                        cell_span(content, table.delimiter, *col)
+                    {
+                        let value_start = offset + start_in_line;
+                        let value_end = offset + end_in_line;
+                        if value_end > value_start {
+                            results.push(
+                                RecognizerResult::new(
+                                    entity.clone(),
+                                    value_start,
+                                    value_end,
+                                    0.95,
+                                    self.name(),
+                                )
+                                .with_text(text),
+                            );
+                        }
+                    }
+                }
+            }
+            row_index += 1;
+            offset += line.len();
+        }
+        Ok(results)
+    }
+}
+
+struct PiiTable {
+    delimiter: char,
+    pii_columns: Vec<(usize, EntityType)>,
+}
+
+fn parse_pii_table(text: &str) -> Option<PiiTable> {
+    let header = text
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())?;
+    let delimiter = detect_delimiter(header)?;
+    let headers: Vec<&str> = header.split(delimiter).map(str::trim).collect();
+    if headers.len() < 2 {
+        return None;
+    }
+    let pii_columns: Vec<(usize, EntityType)> = headers
+        .iter()
+        .enumerate()
+        .filter_map(|(index, label)| entity_for_label(label).map(|entity| (index, entity)))
+        .collect();
+    if pii_columns.is_empty() {
+        return None;
+    }
+    Some(PiiTable {
+        delimiter,
+        pii_columns,
+    })
+}
+
+fn detect_delimiter(header: &str) -> Option<char> {
+    let semis = header.matches(';').count();
+    let commas = header.matches(',').count();
+    if semis >= 1 && semis >= commas {
+        Some(';')
+    } else if commas >= 1 {
+        Some(',')
+    } else {
+        None
+    }
+}
+
+fn cell_span(line: &str, delimiter: char, column: usize) -> Option<(usize, usize)> {
+    let mut start = 0usize;
+    let mut index = 0usize;
+    for (idx, ch) in line.char_indices() {
+        if ch == delimiter {
+            if index == column {
+                return trim_cell_span(line, start, idx);
+            }
+            start = idx + ch.len_utf8();
+            index += 1;
+        }
+    }
+    if index == column {
+        return trim_cell_span(line, start, line.len());
+    }
+    None
+}
+
+fn trim_cell_span(line: &str, start: usize, end: usize) -> Option<(usize, usize)> {
+    let cell = &line[start..end];
+    let trimmed = cell.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let lead = cell.len() - cell.trim_start().len();
+    let trail = cell.len() - cell.trim_end().len();
+    Some((start + lead, end - trail))
 }
 
 fn labeled_value_start(line: &str) -> Option<(&str, usize)> {
@@ -198,6 +339,26 @@ Salaris: € 3.450";
         assert!(!out.contains("12 mei 1984"));
         assert!(!out.contains("3.450"));
         assert_eq!(out.lines().filter(|l| l.contains(':')).count(), 6);
+    }
+
+    #[test]
+    fn redacts_semicolon_csv_naam_and_salaris() {
+        let src = "\
+Id;Naam;Geboortedatum;Adres;Telefoonnummer;Salaris
+1;Jan de Vries;12-05-1984;Hoofdstraat 45, Amsterdam;06-12345678;3450
+2;Anja Bakker;03-11-1990;Kerkplein 2, Utrecht;06-87654321;2900
+3;Mohammed El Amin;21-02-1978;Stationstraat 120, Rotterdam;06-11223344;4200";
+        let out = redact(src);
+        assert!(out.lines().next().unwrap().contains("Naam"));
+        assert!(out.lines().next().unwrap().contains("Salaris"));
+        assert!(!out.contains("Jan de Vries"));
+        assert!(!out.contains("Anja Bakker"));
+        assert!(!out.contains("Mohammed El Amin"));
+        assert!(!out.contains(";3450"));
+        assert!(!out.contains(";2900"));
+        assert!(!out.contains(";4200"));
+        assert!(out.contains("[PERSON]"));
+        assert!(out.contains("[AMOUNT]"));
     }
 
     #[test]
