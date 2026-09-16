@@ -1,11 +1,17 @@
 use crate::format::FormatKind;
 
 pub fn shows_redact(kind: FormatKind) -> bool {
-    matches!(kind, FormatKind::Dataframe | FormatKind::Text | FormatKind::Plain)
+    matches!(
+        kind,
+        FormatKind::Dataframe | FormatKind::Text | FormatKind::Plain
+    )
 }
 
 pub fn shows_dataframe(kind: FormatKind) -> bool {
-    matches!(kind, FormatKind::Json | FormatKind::Xml | FormatKind::Dataframe)
+    matches!(
+        kind,
+        FormatKind::Json | FormatKind::Xml | FormatKind::Dataframe
+    )
 }
 
 pub fn shows_compress(kind: FormatKind) -> bool {
@@ -27,7 +33,12 @@ mod tests {
 
     #[test]
     fn code_and_config_hide_redact_and_dataframe() {
-        for kind in [FormatKind::Rust, FormatKind::Java, FormatKind::Yaml, FormatKind::Url] {
+        for kind in [
+            FormatKind::Rust,
+            FormatKind::Java,
+            FormatKind::Yaml,
+            FormatKind::Url,
+        ] {
             assert!(!shows_redact(kind), "{kind:?}");
             assert!(!shows_dataframe(kind), "{kind:?}");
             assert!(shows_compress(kind), "{kind:?}");
