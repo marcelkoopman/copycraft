@@ -2,6 +2,7 @@ thread_local! {
     static WINDOW: RefCell<Option<Retained<NSWindow>>> = const { RefCell::new(None) };
     static TARGET: RefCell<Option<Retained<PreviewTarget>>> = const { RefCell::new(None) };
     static TEXT: RefCell<Option<Retained<NSTextView>>> = const { RefCell::new(None) };
+    static SCROLL: RefCell<Option<Retained<NSScrollView>>> = const { RefCell::new(None) };
     static COPY_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static ORIGINAL_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static FORMAT_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
@@ -77,36 +78,18 @@ define_class!(
         fn dataframe_clicked(&self, _sender: Option<&AnyObject>) {
             let body = SOURCE_TEXT.with(|src| dataframe::try_format(&src.borrow()));
             let Some(body) = body else {
-                flash_button(
-                    &DATAFRAME_BUTTON,
-                    "Failed",
-                    "Dataframe",
-                    error_flash_color(),
-                    true,
-                );
+                flash_button(&DATAFRAME_BUTTON, "Failed", "Dataframe", error_flash_color(), true);
                 reset_later(self, sel!(resetDataframeLabel:));
                 return;
             };
             apply_preview_with_kind(&body, FormatKind::Dataframe);
-            flash_button(
-                &DATAFRAME_BUTTON,
-                "Dataframe  \u{2713}",
-                "Dataframe",
-                dataframe_flash_color(),
-                true,
-            );
+            flash_button(&DATAFRAME_BUTTON, "Dataframe  \u{2713}", "Dataframe", dataframe_flash_color(), true);
             reset_later(self, sel!(resetDataframeLabel:));
         }
 
         #[unsafe(method(resetDataframeLabel:))]
         fn reset_dataframe_label(&self, _sender: Option<&AnyObject>) {
-            flash_button(
-                &DATAFRAME_BUTTON,
-                "Dataframe  \u{2713}",
-                "Dataframe",
-                dataframe_flash_color(),
-                false,
-            );
+            flash_button(&DATAFRAME_BUTTON, "Dataframe  \u{2713}", "Dataframe", dataframe_flash_color(), false);
         }
 
         #[unsafe(method(saveClicked:))]
@@ -121,6 +104,11 @@ define_class!(
         #[unsafe(method(resetSaveLabel:))]
         fn reset_save_label(&self, _sender: Option<&AnyObject>) {
             flash_button(&SAVE_BUTTON, "Saved  \u{2713}", "Save", save_flash_color(), false);
+        }
+
+        #[unsafe(method(fadePreviewIn:))]
+        fn fade_preview_in(&self, _sender: Option<&AnyObject>) {
+            reveal_preview_body();
         }
     }
 );
