@@ -38,3 +38,5 @@ fn render(df: DataFrame) -> Option<String> {
     }
     Some(df.to_string())
 }
+
+include!("dataframe_parse.rs");
