@@ -51,6 +51,66 @@ fn fade_scroll(alpha: f64, duration: f64) {
     });
 }
 
+const TOOLBAR_PAD: f64 = 10.0;
+const TOOLBAR_GAP: f64 = 6.0;
+const TOOLBAR_BTN_W: f64 = 84.0;
+const TOOLBAR_BTN_H: f64 = 24.0;
+const TOOLBAR_H: f64 = 36.0;
+
+fn apply_toolbar_for_kind(kind: FormatKind) {
+    let source = SOURCE_TEXT.with(|slot| slot.borrow().clone());
+    let show_redact = toolbar_visibility::shows_redact(kind);
+    let show_df = toolbar_visibility::shows_dataframe(kind) || dataframe::try_format(&source).is_some();
+    let show_compress =
+        toolbar_visibility::shows_compress(kind) && compress::is_large_enough(&source);
+    set_button_hidden(&REDACT_BUTTON, !show_redact);
+    set_button_hidden(&DATAFRAME_BUTTON, !show_df);
+    set_button_hidden(&COMPRESS_BUTTON, !show_compress);
+
+    let y = (TOOLBAR_H - TOOLBAR_BTN_H) / 2.0;
+    let mut x = TOOLBAR_PAD;
+    place_button(&ORIGINAL_BUTTON, x, y);
+    x += TOOLBAR_BTN_W + TOOLBAR_GAP;
+    place_button(&FORMAT_BUTTON, x, y);
+    x += TOOLBAR_BTN_W + TOOLBAR_GAP;
+    if show_compress {
+        place_button(&COMPRESS_BUTTON, x, y);
+        x += TOOLBAR_BTN_W + TOOLBAR_GAP;
+    }
+    if show_redact {
+        place_button(&REDACT_BUTTON, x, y);
+        x += TOOLBAR_BTN_W + TOOLBAR_GAP;
+    }
+    if show_df {
+        place_button(&DATAFRAME_BUTTON, x, y);
+    }
+}
+
+fn set_button_hidden(
+    slot: &'static std::thread::LocalKey<RefCell<Option<Retained<NSButton>>>>,
+    hidden: bool,
+) {
+    slot.with(|cell| {
+        if let Some(button) = cell.borrow().as_ref() {
+            button.setHidden(hidden);
+        }
+    });
+}
+
+fn place_button(
+    slot: &'static std::thread::LocalKey<RefCell<Option<Retained<NSButton>>>>,
+    x: f64,
+    y: f64,
+) {
+    slot.with(|cell| {
+        if let Some(button) = cell.borrow().as_ref() {
+            let mut frame = button.frame();
+            frame.origin = NSPoint::new(x, y);
+            button.setFrame(frame);
+        }
+    });
+}
+
 fn make_toolbar_button(
     mtm: MainThreadMarker,
     frame: NSRect,
@@ -60,10 +120,11 @@ fn make_toolbar_button(
 ) -> Retained<NSButton> {
     let button = NSButton::initWithFrame(NSButton::alloc(mtm), frame);
     button.setBordered(true);
+    button.setEnabled(true);
     let mask = if stick_right {
-        NSAutoresizingMaskOptions::ViewMinXMargin | NSAutoresizingMaskOptions::ViewMinYMargin
+        NSAutoresizingMaskOptions::ViewMinXMargin | NSAutoresizingMaskOptions::ViewMaxYMargin
     } else {
-        NSAutoresizingMaskOptions::ViewMaxXMargin | NSAutoresizingMaskOptions::ViewMinYMargin
+        NSAutoresizingMaskOptions::ViewMaxXMargin | NSAutoresizingMaskOptions::ViewMaxYMargin
     };
     button.setAutoresizingMask(mask);
     unsafe {

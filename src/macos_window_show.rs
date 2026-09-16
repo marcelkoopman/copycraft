@@ -5,6 +5,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     SOURCE_TEXT.with(|slot| slot.replace(body.clone()));
     PREVIEW_TEXT.with(|slot| slot.replace(body.clone()));
     PREVIEW_KIND.with(|slot| slot.replace(kind));
+    SOURCE_KIND.with(|slot| slot.replace(kind));
 
     let app = NSApplication::sharedApplication(mtm);
     #[allow(deprecated)]
@@ -31,6 +32,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
                 scroll.setAlphaValue(1.0);
             }
         });
+        apply_toolbar_for_kind(kind);
         flash_button(&COPY_BUTTON, "Copied  \u{2713}", "Copy", copy_flash_color(), false);
         flash_button(&SAVE_BUTTON, "Saved  \u{2713}", "Save", save_flash_color(), false);
         return Ok(());
@@ -74,15 +76,12 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     let target = PreviewTarget::new(mtm);
     let button_h = 24.0;
     let button_w = 84.0;
-    let gap = 6.0;
     let pad = 10.0;
-    let button_y = height - toolbar_h + ((toolbar_h - button_h) / 2.0);
+    let button_y = (toolbar_h - button_h) / 2.0;
     let original_x = pad;
-    let format_x = original_x + button_w + gap;
-    let redact_x = format_x + button_w + gap;
-    let dataframe_x = redact_x + button_w + gap;
+    let format_x = original_x + button_w + 6.0;
     let copy_x = width - pad - button_w;
-    let save_x = copy_x - gap - button_w;
+    let save_x = copy_x - 6.0 - button_w;
 
     let original_button = make_toolbar_button(
         mtm,
@@ -100,9 +99,17 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
         false,
     );
     style_title_button(&format_button, "Format", &idle_button_color());
+    let compress_button = make_toolbar_button(
+        mtm,
+        NSRect::new(NSPoint::new(format_x, button_y), NSSize::new(button_w, button_h)),
+        &target,
+        sel!(compressClicked:),
+        false,
+    );
+    style_title_button(&compress_button, "Compress", &idle_button_color());
     let redact_button = make_toolbar_button(
         mtm,
-        NSRect::new(NSPoint::new(redact_x, button_y), NSSize::new(button_w, button_h)),
+        NSRect::new(NSPoint::new(format_x, button_y), NSSize::new(button_w, button_h)),
         &target,
         sel!(redactClicked:),
         false,
@@ -110,7 +117,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     style_title_button(&redact_button, "Redact", &idle_button_color());
     let dataframe_button = make_toolbar_button(
         mtm,
-        NSRect::new(NSPoint::new(dataframe_x, button_y), NSSize::new(button_w, button_h)),
+        NSRect::new(NSPoint::new(format_x, button_y), NSSize::new(button_w, button_h)),
         &target,
         sel!(dataframeClicked:),
         false,
@@ -134,7 +141,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
 
     let scroll = NSScrollView::initWithFrame(
         NSScrollView::alloc(mtm),
-        NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(width, height - toolbar_h)),
+        NSRect::new(NSPoint::new(0.0, toolbar_h), NSSize::new(width, height - toolbar_h)),
     );
     scroll.setHasVerticalScroller(true);
     scroll.setHasHorizontalScroller(true);
@@ -163,6 +170,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     frosted.addSubview(&scroll);
     frosted.addSubview(&original_button);
     frosted.addSubview(&format_button);
+    frosted.addSubview(&compress_button);
     frosted.addSubview(&redact_button);
     frosted.addSubview(&dataframe_button);
     frosted.addSubview(&save_button);
@@ -178,11 +186,13 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     SCROLL.with(|slot| slot.replace(Some(scroll)));
     ORIGINAL_BUTTON.with(|slot| slot.replace(Some(original_button)));
     FORMAT_BUTTON.with(|slot| slot.replace(Some(format_button)));
+    COMPRESS_BUTTON.with(|slot| slot.replace(Some(compress_button)));
     REDACT_BUTTON.with(|slot| slot.replace(Some(redact_button)));
     DATAFRAME_BUTTON.with(|slot| slot.replace(Some(dataframe_button)));
     SAVE_BUTTON.with(|slot| slot.replace(Some(save_button)));
     COPY_BUTTON.with(|slot| slot.replace(Some(copy_button)));
     WINDOW.with(|slot| slot.replace(Some(window)));
+    apply_toolbar_for_kind(kind);
     flash_button(&COPY_BUTTON, "Copied  \u{2713}", "Copy", copy_flash_color(), false);
     flash_button(&SAVE_BUTTON, "Saved  \u{2713}", "Save", save_flash_color(), false);
     Ok(())

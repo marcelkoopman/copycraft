@@ -1,4 +1,5 @@
 mod clipboard;
+mod compress;
 mod dataframe;
 mod format;
 mod highlight;
@@ -6,6 +7,7 @@ mod icon;
 mod menubar;
 mod preview;
 mod redact;
+mod toolbar_visibility;
 mod transform;
 
 #[cfg(target_os = "macos")]

@@ -235,8 +235,23 @@ fn tokenize_rust(source: &str) -> Vec<(TokenKind, String)> {
 fn tokenize_code(source: &str, kind: FormatKind) -> Vec<(TokenKind, String)> {
     let keywords: &[&str] = match kind {
         FormatKind::Java => &[
-            "public", "private", "protected", "class", "static", "void", "int", "long",
-            "boolean", "return", "if", "else", "new", "package", "import", "final", "this",
+            "public",
+            "private",
+            "protected",
+            "class",
+            "static",
+            "void",
+            "int",
+            "long",
+            "boolean",
+            "return",
+            "if",
+            "else",
+            "new",
+            "package",
+            "import",
+            "final",
+            "this",
         ],
         _ => &[],
     };
@@ -336,46 +351,86 @@ mod tests {
     #[test]
     fn json_marks_keys_and_numbers() {
         let toks = tokens("{\"name\":1}", FormatKind::Json);
-        assert!(toks.iter().any(|(k, v)| *k == TokenKind::Key && v.contains("name")));
-        assert!(toks.iter().any(|(k, v)| *k == TokenKind::Number && v == "1"));
+        assert!(
+            toks.iter()
+                .any(|(k, v)| *k == TokenKind::Key && v.contains("name"))
+        );
+        assert!(
+            toks.iter()
+                .any(|(k, v)| *k == TokenKind::Number && v == "1")
+        );
     }
 
     #[test]
     fn rust_marks_fn_name_and_macro() {
         let toks = tokens("fn main() { eprintln!(\"x\"); }", FormatKind::Rust);
-        assert!(toks.iter().any(|(k, v)| *k == TokenKind::Function && v == "main"));
-        assert!(toks.iter().any(|(k, v)| *k == TokenKind::Macro && v == "eprintln!"));
+        assert!(
+            toks.iter()
+                .any(|(k, v)| *k == TokenKind::Function && v == "main")
+        );
+        assert!(
+            toks.iter()
+                .any(|(k, v)| *k == TokenKind::Macro && v == "eprintln!")
+        );
     }
 
     #[test]
     fn xml_marks_tags_and_attrs() {
         let toks = tokens("<root id=\"1\"><!--x--></root>", FormatKind::Xml);
-        assert!(toks.iter().any(|(k, v)| *k == TokenKind::Keyword && v == "root"));
+        assert!(
+            toks.iter()
+                .any(|(k, v)| *k == TokenKind::Keyword && v == "root")
+        );
         assert!(toks.iter().any(|(k, v)| *k == TokenKind::Key && v == "id"));
-        assert!(toks.iter().any(|(k, v)| *k == TokenKind::String && v.contains('1')));
+        assert!(
+            toks.iter()
+                .any(|(k, v)| *k == TokenKind::String && v.contains('1'))
+        );
         assert!(toks.iter().any(|(k, _)| *k == TokenKind::Comment));
     }
 
     #[test]
     fn yaml_marks_keys() {
         let toks = tokens("name: copycraft\ncount: 2\n", FormatKind::Yaml);
-        assert!(toks.iter().any(|(k, v)| *k == TokenKind::Key && v == "name"));
-        assert!(toks.iter().any(|(k, v)| *k == TokenKind::Number && v == "2"));
+        assert!(
+            toks.iter()
+                .any(|(k, v)| *k == TokenKind::Key && v == "name")
+        );
+        assert!(
+            toks.iter()
+                .any(|(k, v)| *k == TokenKind::Number && v == "2")
+        );
     }
 
     #[test]
     fn dataframe_marks_shape_and_numbers() {
-        let src = "shape: (2, 2)\n\u{2502} Id \u{2502} n \u{2502}\n\u{2502} 1 \u{2502} 9 \u{2502}\n";
+        let src =
+            "shape: (2, 2)\n\u{2502} Id \u{2502} n \u{2502}\n\u{2502} 1 \u{2502} 9 \u{2502}\n";
         let toks = tokens(src, FormatKind::Dataframe);
-        assert!(toks.iter().any(|(k, v)| *k == TokenKind::Keyword && v.starts_with("shape")));
-        assert!(toks.iter().any(|(k, v)| *k == TokenKind::Number && v.trim() == "1"));
+        assert!(
+            toks.iter()
+                .any(|(k, v)| *k == TokenKind::Keyword && v.starts_with("shape"))
+        );
+        assert!(
+            toks.iter()
+                .any(|(k, v)| *k == TokenKind::Number && v.trim() == "1")
+        );
     }
 
     #[test]
     fn redacted_marks_placeholders() {
         let toks = tokens("Naam: [PERSON]\nmail: [EMAIL_ADDRESS]\n", FormatKind::Plain);
-        assert!(toks.iter().any(|(k, v)| *k == TokenKind::Keyword && v == "[PERSON]"));
-        assert!(toks.iter().any(|(k, v)| *k == TokenKind::Keyword && v == "[EMAIL_ADDRESS]"));
-        assert!(toks.iter().any(|(k, v)| *k == TokenKind::Key && v == "Naam"));
+        assert!(
+            toks.iter()
+                .any(|(k, v)| *k == TokenKind::Keyword && v == "[PERSON]")
+        );
+        assert!(
+            toks.iter()
+                .any(|(k, v)| *k == TokenKind::Keyword && v == "[EMAIL_ADDRESS]")
+        );
+        assert!(
+            toks.iter()
+                .any(|(k, v)| *k == TokenKind::Key && v == "Naam")
+        );
     }
 }

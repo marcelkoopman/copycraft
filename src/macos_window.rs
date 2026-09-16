@@ -17,10 +17,12 @@ use objc2_foundation::{
 };
 
 use crate::clipboard;
+use crate::compress;
 use crate::dataframe;
 use crate::format::{self, FormatKind};
 use crate::macos_preview_text::{configure_scrolling_text, editor_font, set_body};
 use crate::redact;
+use crate::toolbar_visibility;
 
 include!("macos_window_state.rs");
 include!("macos_window_show.rs");
