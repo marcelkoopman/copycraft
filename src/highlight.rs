@@ -1,8 +1,5 @@
 use crate::format::FormatKind;
 
-mod highlight_extra;
-use highlight_extra::{looks_redacted, tokenize_dataframe, tokenize_redacted, tokenize_yaml};
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenKind {
     Key,
@@ -279,7 +276,7 @@ fn tokenize_code(source: &str, kind: FormatKind) -> Vec<(TokenKind, String)> {
     out
 }
 
-pub(crate) fn take_string(chars: &[char], start: usize) -> (String, usize) {
+fn take_string(chars: &[char], start: usize) -> (String, usize) {
     let mut i = start + 1;
     let mut token = String::from("\"");
     while i < chars.len() {
@@ -298,7 +295,7 @@ pub(crate) fn take_string(chars: &[char], start: usize) -> (String, usize) {
     (token, i)
 }
 
-pub(crate) fn take_while(chars: &[char], start: usize, pred: impl Fn(char) -> bool) -> (String, usize) {
+fn take_while(chars: &[char], start: usize, pred: impl Fn(char) -> bool) -> (String, usize) {
     let mut i = start;
     let mut token = String::new();
     while i < chars.len() && pred(chars[i]) {
@@ -328,6 +325,8 @@ fn starts_with(chars: &[char], i: usize, word: &str) -> bool {
     chars[i..i + w.len()] == w[..]
         && (i + w.len() == chars.len() || !chars[i + w.len()].is_ascii_alphanumeric())
 }
+
+include!("highlight_extra.rs");
 
 #[cfg(test)]
 mod tests {
