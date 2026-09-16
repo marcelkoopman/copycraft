@@ -114,23 +114,15 @@ fn colored_text(source: &str, kind: FormatKind) -> Retained<NSMutableAttributedS
 fn color_for(kind: TokenKind) -> Retained<NSColor> {
     match kind {
         TokenKind::Key | TokenKind::Function => {
-            NSColor::colorWithCalibratedRed_green_blue_alpha(0.48, 0.69, 0.97, 1.0)
+            NSColor::systemBlueColor()
         }
-        TokenKind::String => {
-            NSColor::colorWithCalibratedRed_green_blue_alpha(0.62, 0.80, 0.42, 1.0)
-        }
-        TokenKind::Number => {
-            NSColor::colorWithCalibratedRed_green_blue_alpha(0.86, 0.61, 0.36, 1.0)
-        }
-        TokenKind::Keyword => {
-            NSColor::colorWithCalibratedRed_green_blue_alpha(0.78, 0.63, 0.97, 1.0)
-        }
-        TokenKind::Type => NSColor::colorWithCalibratedRed_green_blue_alpha(0.45, 0.80, 0.93, 1.0),
-        TokenKind::Macro => NSColor::colorWithCalibratedRed_green_blue_alpha(0.48, 0.69, 0.97, 1.0),
-        TokenKind::Comment => {
-            NSColor::colorWithCalibratedRed_green_blue_alpha(0.45, 0.48, 0.55, 1.0)
-        }
-        TokenKind::Punct => NSColor::colorWithCalibratedRed_green_blue_alpha(0.62, 0.65, 0.72, 1.0),
-        TokenKind::Text => NSColor::colorWithCalibratedRed_green_blue_alpha(0.78, 0.80, 0.86, 1.0),
+        TokenKind::String => NSColor::systemGreenColor(),
+        TokenKind::Number => NSColor::systemOrangeColor(),
+        TokenKind::Keyword => NSColor::systemPurpleColor(),
+        TokenKind::Type => NSColor::systemTealColor(),
+        TokenKind::Macro => NSColor::systemBlueColor(),
+        TokenKind::Comment => NSColor::secondaryLabelColor(),
+        TokenKind::Punct => NSColor::tertiaryLabelColor(),
+        TokenKind::Text => NSColor::labelColor(),
     }
 }
