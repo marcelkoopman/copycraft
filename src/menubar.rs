@@ -2,7 +2,10 @@ use std::time::{Duration, Instant};
 
 use tray_icon::{
     TrayIcon, TrayIconBuilder, TrayIconEvent,
-    menu::{IconMenuItem, Menu, MenuEvent, MenuItem, NativeIcon, PredefinedMenuItem, TextStyle},
+    menu::{
+        CheckMenuItem, IconMenuItem, Menu, MenuEvent, MenuItem, NativeIcon, PredefinedMenuItem,
+        Submenu, TextStyle,
+    },
 };
 use winit::{
     application::ApplicationHandler,
@@ -10,6 +13,7 @@ use winit::{
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
 };
 
+use crate::appearance::{self, Theme};
 use crate::clipboard::{self, ClipboardHistory, ClipboardView};
 use crate::format;
 use crate::icon;
@@ -45,6 +49,12 @@ impl ApplicationHandler for App {
                 id if id.starts_with("hist_") => {
                     if let Ok(index) = id.trim_start_matches("hist_").parse::<usize>() {
                         self.show_history(index);
+                    }
+                }
+                id if Theme::from_id(id).is_some() => {
+                    if let Some(theme) = Theme::from_id(id) {
+                        theme.save();
+                        self.rebuild_menu(true);
                     }
                 }
                 _ => {}
@@ -208,6 +218,8 @@ impl App {
         }
 
         let _ = menu.append(&PredefinedMenuItem::separator());
+        let _ = menu.append(&appearance_menu());
+        let _ = menu.append(&PredefinedMenuItem::separator());
         let _ = menu.append(&IconMenuItem::with_id_and_native_icon(
             "clear_clipboard",
             "Clear clipboard",
@@ -234,6 +246,33 @@ impl App {
         let _ = self.tray.set_tooltip(Some("Copycraft"));
         self.tray.set_title(None::<&str>);
     }
+}
+
+fn appearance_menu() -> Submenu {
+    let current = Theme::load();
+    let menu = Submenu::new("Appearance", true);
+    let _ = menu.append(&CheckMenuItem::with_id(
+        Theme::System.as_id(),
+        "System",
+        true,
+        current == Theme::System,
+        None,
+    ));
+    let _ = menu.append(&CheckMenuItem::with_id(
+        Theme::Light.as_id(),
+        "Light",
+        true,
+        current == Theme::Light,
+        None,
+    ));
+    let _ = menu.append(&CheckMenuItem::with_id(
+        Theme::Dark.as_id(),
+        "Dark",
+        true,
+        current == Theme::Dark,
+        None,
+    ));
+    menu
 }
 
 fn clipboard_entry_item(
@@ -264,6 +303,7 @@ fn style_entry_item(item: &MenuItem, text: Option<&str>, current: bool) {
 }
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
+    appearance::apply(Theme::load());
     let icon = icon::menu_icon()?;
     let menu = Menu::new();
     let _ = menu.append(&MenuItem::new("Clipboard", false, None));
