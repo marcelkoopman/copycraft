@@ -61,12 +61,40 @@ define_class!(
         fn format_clicked(&self, _sender: Option<&AnyObject>) {
             let body = SOURCE_TEXT.with(|src| clipboard::formatted(&src.borrow()));
             apply_preview(&body);
+            style_format_button(true);
+            unsafe {
+                let _: () = msg_send![
+                    self,
+                    performSelector: sel!(resetFormatLabel:),
+                    withObject: None::<&AnyObject>,
+                    afterDelay: 1.6
+                ];
+            }
+        }
+
+        #[unsafe(method(resetFormatLabel:))]
+        fn reset_format_label(&self, _sender: Option<&AnyObject>) {
+            style_format_button(false);
         }
 
         #[unsafe(method(redactClicked:))]
         fn redact_clicked(&self, _sender: Option<&AnyObject>) {
             let body = SOURCE_TEXT.with(|src| redact::redact(&src.borrow()));
             apply_preview(&body);
+            style_redact_button(true);
+            unsafe {
+                let _: () = msg_send![
+                    self,
+                    performSelector: sel!(resetRedactLabel:),
+                    withObject: None::<&AnyObject>,
+                    afterDelay: 1.6
+                ];
+            }
+        }
+
+        #[unsafe(method(resetRedactLabel:))]
+        fn reset_redact_label(&self, _sender: Option<&AnyObject>) {
+            style_redact_button(false);
         }
     }
 );
@@ -94,20 +122,15 @@ fn editor_font() -> Retained<NSFont> {
     NSFont::monospacedSystemFontOfSize_weight(14.0, 0.0)
 }
 
-fn style_title_button(button: &NSButton, label: &str, highlight: bool) {
+fn style_title_button(button: &NSButton, label: &str, color: &NSColor) {
     let ns = NSString::from_str(label);
     let attr = NSMutableAttributedString::initWithString(NSMutableAttributedString::alloc(), &ns);
     let all = NSRange {
         location: 0,
         length: ns.length(),
     };
-    let color = if highlight {
-        NSColor::colorWithCalibratedRed_green_blue_alpha(0.32, 0.84, 0.54, 1.0)
-    } else {
-        NSColor::colorWithCalibratedRed_green_blue_alpha(0.86, 0.89, 0.93, 1.0)
-    };
     unsafe {
-        attr.addAttribute_value_range(NSForegroundColorAttributeName, &color, all);
+        attr.addAttribute_value_range(NSForegroundColorAttributeName, color, all);
         attr.addAttribute_value_range(
             NSFontAttributeName,
             &NSFont::systemFontOfSize(13.0),
@@ -117,6 +140,22 @@ fn style_title_button(button: &NSButton, label: &str, highlight: bool) {
     button.setAttributedTitle(&attr);
 }
 
+fn idle_button_color() -> Retained<NSColor> {
+    NSColor::colorWithCalibratedRed_green_blue_alpha(0.86, 0.89, 0.93, 1.0)
+}
+
+fn copy_flash_color() -> Retained<NSColor> {
+    NSColor::colorWithCalibratedRed_green_blue_alpha(0.32, 0.84, 0.54, 1.0)
+}
+
+fn format_flash_color() -> Retained<NSColor> {
+    NSColor::colorWithCalibratedRed_green_blue_alpha(0.96, 0.77, 0.26, 1.0)
+}
+
+fn redact_flash_color() -> Retained<NSColor> {
+    NSColor::colorWithCalibratedRed_green_blue_alpha(0.80, 0.48, 0.94, 1.0)
+}
+
 fn style_copy_button(copied: bool) {
     COPY_BUTTON.with(|slot| {
         let borrowed = slot.borrow();
@@ -124,7 +163,44 @@ fn style_copy_button(copied: bool) {
             return;
         };
         let label = if copied { "Copied  \u{2713}" } else { "Copy" };
-        style_title_button(button, label, copied);
+        let color = if copied {
+            copy_flash_color()
+        } else {
+            idle_button_color()
+        };
+        style_title_button(button, label, &color);
+    });
+}
+
+fn style_format_button(done: bool) {
+    FORMAT_BUTTON.with(|slot| {
+        let borrowed = slot.borrow();
+        let Some(button) = borrowed.as_ref() else {
+            return;
+        };
+        let label = if done { "Formatted  \u{2713}" } else { "Format" };
+        let color = if done {
+            format_flash_color()
+        } else {
+            idle_button_color()
+        };
+        style_title_button(button, label, &color);
+    });
+}
+
+fn style_redact_button(done: bool) {
+    REDACT_BUTTON.with(|slot| {
+        let borrowed = slot.borrow();
+        let Some(button) = borrowed.as_ref() else {
+            return;
+        };
+        let label = if done { "Redacted  \u{2713}" } else { "Redact" };
+        let color = if done {
+            redact_flash_color()
+        } else {
+            idle_button_color()
+        };
+        style_title_button(button, label, &color);
     });
 }
 
@@ -239,7 +315,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     let target = PreviewTarget::new(mtm);
     let button_y = height - titlebar + 3.0;
     let button_h = 22.0;
-    let button_w = 88.0;
+    let button_w = 104.0;
     let gap = 8.0;
     let copy_x = width - button_w - 16.0;
     let redact_x = copy_x - button_w - gap;
@@ -251,7 +327,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
         &target,
         sel!(formatClicked:),
     );
-    style_title_button(&format_button, "Format", false);
+    style_title_button(&format_button, "Format", &idle_button_color());
 
     let redact_button = make_title_button(
         mtm,
@@ -259,7 +335,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
         &target,
         sel!(redactClicked:),
     );
-    style_title_button(&redact_button, "Redact", false);
+    style_title_button(&redact_button, "Redact", &idle_button_color());
 
     let copy_button = make_title_button(
         mtm,
