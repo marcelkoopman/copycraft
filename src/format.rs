@@ -494,4 +494,30 @@ mod tests {
         assert!(out.contains("    let x=1;"));
         assert!(out.lines().last().unwrap().starts_with('}'));
     }
+
+    #[test]
+    fn blank_line_record_stays_text_after_redact() {
+        let src = "\
+Naam: Jan de Vries
+
+Adres: Hoofdstraat 45, 9711 AB Groningen
+
+E-mailadres: jan.devries@email.nl
+
+Telefoonnummer: 06-12345678
+
+Geboortedatum: 12 mei 1984
+
+Salaris: € 3.450";
+        let redacted = crate::redact::redact(src);
+        assert!(redacted.contains("Adres:"));
+        assert!(redacted.contains("Salaris:"));
+        assert!(!redacted.contains("jan.devries@email.nl"));
+        assert_ne!(detect(&redacted), FormatKind::Yaml);
+        let formatted = super::format_text(&redacted);
+        assert!(formatted.contains("Adres:"));
+        assert!(formatted.contains("Telefoonnummer:"));
+        assert!(!formatted.contains("jan.devries@email.nl"));
+    }
+
 }

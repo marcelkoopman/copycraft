@@ -80,12 +80,28 @@ mod tests {
 
     #[test]
     fn labeled_personal_record_is_not_yaml() {
-        let src = "Naam: Verwijderd
-Adres: Alleen regio (Groningen)
-E-mailadres: Verwijderd
-Telefoonnummer: Verwijderd
-Geboortedatum: Alleen leeftijdscategorie (40-45 jaar)
-Salaris: € 3.000 - € 3.500";
+        let src = "Naam: [PERSON]
+Adres: [LOCATION]
+E-mailadres: [EMAIL_ADDRESS]
+Telefoonnummer: [PHONE_NUMBER]
+Geboortedatum: [DATE_TIME]
+Salaris: [MONEY]";
+        assert!(!looks_like_yaml(src));
+    }
+
+    #[test]
+    fn blank_line_labeled_record_is_not_yaml() {
+        let src = "Naam: Jan de Vries
+
+Adres: Hoofdstraat 45, 9711 AB Groningen
+
+E-mailadres: jan.devries@email.nl
+
+Telefoonnummer: 06-12345678
+
+Geboortedatum: 12 mei 1984
+
+Salaris: € 3.450";
         assert!(!looks_like_yaml(src));
     }
 }
