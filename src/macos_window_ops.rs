@@ -66,13 +66,7 @@ fn apply_toolbar_for_kind(kind: FormatKind) {
     set_button_hidden(&DATAFRAME_BUTTON, !show_df);
     set_button_hidden(&COMPRESS_BUTTON, !show_compress);
 
-    let height = WINDOW.with(|slot| {
-        slot.borrow()
-            .as_ref()
-            .map(|w| w.frame().size.height)
-            .unwrap_or(520.0)
-    });
-    let y = height - TOOLBAR_H + ((TOOLBAR_H - TOOLBAR_BTN_H) / 2.0);
+    let y = (TOOLBAR_H - TOOLBAR_BTN_H) / 2.0;
     let mut x = TOOLBAR_PAD;
     place_button(&ORIGINAL_BUTTON, x, y);
     x += TOOLBAR_BTN_W + TOOLBAR_GAP;
@@ -125,10 +119,11 @@ fn make_toolbar_button(
 ) -> Retained<NSButton> {
     let button = NSButton::initWithFrame(NSButton::alloc(mtm), frame);
     button.setBordered(true);
+    button.setEnabled(true);
     let mask = if stick_right {
-        NSAutoresizingMaskOptions::ViewMinXMargin | NSAutoresizingMaskOptions::ViewMinYMargin
+        NSAutoresizingMaskOptions::ViewMinXMargin | NSAutoresizingMaskOptions::ViewMaxYMargin
     } else {
-        NSAutoresizingMaskOptions::ViewMaxXMargin | NSAutoresizingMaskOptions::ViewMinYMargin
+        NSAutoresizingMaskOptions::ViewMaxXMargin | NSAutoresizingMaskOptions::ViewMaxYMargin
     };
     button.setAutoresizingMask(mask);
     unsafe {
