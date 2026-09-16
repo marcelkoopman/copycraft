@@ -71,3 +71,60 @@ impl FormatKind {
         }
     }
 }
+
+pub fn detect(text: &str) -> FormatKind {
+    if crate::clipboard::try_format_json(text).is_some() {
+        return FormatKind::Json;
+    }
+    if crate::transform::looks_like_yaml(text) {
+        return FormatKind::Yaml;
+    }
+    let trimmed = text.trim_start();
+    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        return FormatKind::Url;
+    }
+    if looks_like_xml(text) {
+        return FormatKind::Xml;
+    }
+    if looks_like_rust(text) {
+        return FormatKind::Rust;
+    }
+    if looks_like_java(text) {
+        return FormatKind::Java;
+    }
+    if text.contains('\n') {
+        FormatKind::Text
+    } else {
+        FormatKind::Plain
+    }
+}
+
+pub fn format_text(text: &str) -> String {
+    match detect(text) {
+        FormatKind::Json => {
+            crate::clipboard::try_format_json(text).unwrap_or_else(|| text.to_string())
+        }
+        FormatKind::Yaml => {
+            crate::transform::pretty_yaml(text).unwrap_or_else(|_| text.to_string())
+        }
+        FormatKind::Rust => format_rust(text),
+        FormatKind::Java => indent_braces(text),
+        FormatKind::Xml => pretty_xml(text),
+        FormatKind::Url | FormatKind::Dataframe | FormatKind::Text | FormatKind::Plain => {
+            text.to_string()
+        }
+    }
+}
+
+pub fn looks_like_xml(text: &str) -> bool {
+    let trimmed = text.trim_start();
+    if !(trimmed.starts_with('<') && trimmed.contains('>')) {
+        return false;
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    lower.starts_with("<?xml")
+        || lower.starts_with("<!doctype")
+        || lower.starts_with("<svg")
+        || lower.starts_with("<html")
+        || tag_balance(trimmed)
+}
