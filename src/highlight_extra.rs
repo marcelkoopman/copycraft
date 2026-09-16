@@ -1,6 +1,4 @@
-use super::{TokenKind, take_string, take_while};
-
-pub(crate) fn looks_redacted(source: &str) -> bool {
+fn looks_redacted(source: &str) -> bool {
     source.contains('[') && source.contains(']') && has_redact_tag(source)
 }
 
@@ -8,17 +6,15 @@ fn has_redact_tag(source: &str) -> bool {
     let chars: Vec<char> = source.chars().collect();
     let mut i = 0;
     while i < chars.len() {
-        if chars[i] == '[' {
-            if redact_tag_chars(&chars, i).is_some() {
-                return true;
-            }
+        if chars[i] == '[' && redact_tag_chars(&chars, i).is_some() {
+            return true;
         }
         i += 1;
     }
     false
 }
 
-pub(crate) fn tokenize_yaml(source: &str) -> Vec<(TokenKind, String)> {
+fn tokenize_yaml(source: &str) -> Vec<(TokenKind, String)> {
     let mut out = Vec::new();
     let chars: Vec<char> = source.chars().collect();
     let mut i = 0;
@@ -63,7 +59,7 @@ pub(crate) fn tokenize_yaml(source: &str) -> Vec<(TokenKind, String)> {
         if ch.is_ascii_alphabetic() || ch == '_' {
             let (token, next) =
                 take_while(&chars, i, |c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'));
-            let after = skip_ws(&chars, next);
+            let after = skip_ws_extra(&chars, next);
             let kind = if after < chars.len() && chars[after] == ':' {
                 TokenKind::Key
             } else if matches!(token.as_str(), "true" | "false" | "null" | "yes" | "no") {
@@ -91,7 +87,7 @@ pub(crate) fn tokenize_yaml(source: &str) -> Vec<(TokenKind, String)> {
     out
 }
 
-pub(crate) fn tokenize_dataframe(source: &str) -> Vec<(TokenKind, String)> {
+fn tokenize_dataframe(source: &str) -> Vec<(TokenKind, String)> {
     let mut out = Vec::new();
     for (idx, line) in source.split_inclusive('\n').enumerate() {
         tokenize_df_line(&mut out, line, idx == 0);
@@ -108,7 +104,8 @@ fn tokenize_df_line(out: &mut Vec<(TokenKind, String)>, line: &str, first: bool)
         out.push((TokenKind::Number, line["shape:".len()..].to_string()));
         return;
     }
-    let headerish = line.contains('\u{2500}') || line.contains('\u{2502}') || line.contains('\u{253c}');
+    let headerish =
+        line.contains('\u{2500}') || line.contains('\u{2502}') || line.contains('\u{253c}');
     let chars: Vec<char> = line.chars().collect();
     let mut i = 0;
     while i < chars.len() {
@@ -159,7 +156,7 @@ fn is_box(ch: char) -> bool {
     matches!(ch, '\u{2500}'..='\u{257F}' | '|')
 }
 
-pub(crate) fn tokenize_redacted(source: &str) -> Vec<(TokenKind, String)> {
+fn tokenize_redacted(source: &str) -> Vec<(TokenKind, String)> {
     let chars: Vec<char> = source.chars().collect();
     let mut out = Vec::new();
     let mut i = 0;
@@ -181,7 +178,7 @@ pub(crate) fn tokenize_redacted(source: &str) -> Vec<(TokenKind, String)> {
             let (token, next) = take_while(&chars, i, |c| {
                 c.is_ascii_alphanumeric() || matches!(c, '_' | '-')
             });
-            let after = skip_ws(&chars, next);
+            let after = skip_ws_extra(&chars, next);
             let kind = if after < chars.len() && chars[after] == ':' {
                 TokenKind::Key
             } else {
@@ -225,7 +222,7 @@ fn starts_at(chars: &[char], i: usize, s: &str) -> bool {
     i + w.len() <= chars.len() && chars[i..i + w.len()] == w[..]
 }
 
-fn skip_ws(chars: &[char], mut i: usize) -> usize {
+fn skip_ws_extra(chars: &[char], mut i: usize) -> usize {
     while i < chars.len() && chars[i].is_whitespace() {
         i += 1;
     }
