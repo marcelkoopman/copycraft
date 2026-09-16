@@ -119,9 +119,8 @@ impl App {
     }
 
     fn open_preview(&mut self, text: &str) {
-        let shown = clipboard::formatted(text);
-        let kind = format::detect(&shown);
-        if let Err(e) = preview::show(&shown, kind) {
+        let kind = format::detect(text);
+        if let Err(e) = preview::show(text, kind) {
             eprintln!("preview failed: {e}");
         }
         self.rebuild_menu(true);
@@ -177,8 +176,13 @@ impl App {
 
         let menu = Menu::new();
         let _ = menu.append(&MenuItem::new("Current", false, None));
-        let current = MenuItem::with_id("current", format!("• {label}"), true, None);
-        style_clipboard_item(&current, view.text(), true);
+        let current = clipboard_entry_item(
+            "current",
+            format!("• {label}"),
+            view.text().is_some(),
+            view.text(),
+            true,
+        );
         let _ = menu.append(&current);
         let _ = menu.append(&PredefinedMenuItem::separator());
         let history_title = if history_rows.is_empty() {
@@ -192,9 +196,13 @@ impl App {
             let _ = menu.append(&MenuItem::new("(no history yet)", false, None));
         } else {
             for (index, item_label) in history_rows {
-                let id = format!("hist_{index}");
-                let item = MenuItem::with_id(id, item_label, true, None);
-                style_clipboard_item(&item, self.history.get(index), false);
+                let item = clipboard_entry_item(
+                    &format!("hist_{index}"),
+                    item_label,
+                    true,
+                    self.history.get(index),
+                    false,
+                );
                 let _ = menu.append(&item);
             }
         }
@@ -223,33 +231,36 @@ impl App {
             None,
         ));
         self.tray.set_menu(Some(Box::new(menu)));
-        let _ = self.tray.set_tooltip(Some(label.as_str()));
+        let _ = self.tray.set_tooltip(Some("Copycraft"));
         self.tray.set_title(None::<&str>);
     }
 }
 
-fn style_clipboard_item(item: &MenuItem, text: Option<&str>, current: bool) {
+fn clipboard_entry_item(
+    id: &str,
+    title: String,
+    enabled: bool,
+    text: Option<&str>,
+    current: bool,
+) -> MenuItem {
+    let item = MenuItem::with_id(id, &title, enabled, None);
+    style_entry_item(&item, text, current);
+    item
+}
+
+fn style_entry_item(item: &MenuItem, text: Option<&str>, current: bool) {
     let Some(text) = text else {
         return;
     };
-    let (kind, preview) = clipboard::type_and_preview(text);
-    let Some(kind) = kind else {
-        let plain = if current {
-            format!("• {preview}")
-        } else {
-            preview
-        };
-        item.set_text(plain);
-        return;
-    };
-    let mut parts: Vec<(String, TextStyle)> = Vec::new();
+    let mark = clipboard::menu_mark(text).to_string();
     if current {
-        parts.push(("• ".into(), TextStyle::Default));
+        item.set_styled_text(vec![
+            ("• ".to_string(), TextStyle::Default),
+            (mark, TextStyle::Secondary),
+        ]);
+    } else {
+        item.set_styled_text(vec![(mark, TextStyle::Secondary)]);
     }
-    parts.push((kind.into(), TextStyle::Default));
-    parts.push((" | ".into(), TextStyle::Secondary));
-    parts.push((preview, TextStyle::Secondary));
-    item.set_styled_text(parts);
 }
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {

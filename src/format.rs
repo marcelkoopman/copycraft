@@ -14,15 +14,16 @@ pub enum FormatKind {
 }
 
 impl FormatKind {
-    pub fn label(self) -> &'static str {
+    pub fn menu_symbol(self) -> &'static str {
         match self {
-            Self::Json => "JSON",
-            Self::Yaml => "YAML",
-            Self::Rust => "Rust",
-            Self::Java => "Java",
-            Self::Url => "URL",
-            Self::Xml => "XML",
-            Self::Text | Self::Plain => "",
+            Self::Json => "{}",
+            Self::Yaml => "---",
+            Self::Rust => "fn",
+            Self::Java => "Jv",
+            Self::Url => "://",
+            Self::Xml => "</>",
+            Self::Text => "¶",
+            Self::Plain => "Aa",
         }
     }
 
@@ -413,6 +414,19 @@ mod tests {
     use super::{FormatKind, detect, indent_braces, pretty_xml};
 
     #[test]
+    fn menu_symbols_are_type_marks() {
+        use super::FormatKind::*;
+        assert_eq!(Json.menu_symbol(), "{}");
+        assert_eq!(Yaml.menu_symbol(), "---");
+        assert_eq!(Rust.menu_symbol(), "fn");
+        assert_eq!(Java.menu_symbol(), "Jv");
+        assert_eq!(Url.menu_symbol(), "://");
+        assert_eq!(Xml.menu_symbol(), "</>");
+        assert_eq!(Text.menu_symbol(), "¶");
+        assert_eq!(Plain.menu_symbol(), "Aa");
+    }
+
+    #[test]
     fn accent_rgba_for_typed_kinds() {
         assert_eq!(FormatKind::Rust.accent_rgba(), Some([222, 165, 132, 255]));
         assert_eq!(FormatKind::Plain.accent_rgba(), None);
@@ -493,5 +507,30 @@ mod tests {
         let out = indent_braces(src);
         assert!(out.contains("    let x=1;"));
         assert!(out.lines().last().unwrap().starts_with('}'));
+    }
+
+    #[test]
+    fn blank_line_record_stays_text_after_redact() {
+        let src = "\
+Naam: Jan de Vries
+
+Adres: Hoofdstraat 45, 9711 AB Groningen
+
+E-mailadres: jan.devries@email.nl
+
+Telefoonnummer: 06-12345678
+
+Geboortedatum: 12 mei 1984
+
+Salaris: € 3.450";
+        let redacted = crate::redact::redact(src);
+        assert!(redacted.contains("Adres:"));
+        assert!(redacted.contains("Salaris:"));
+        assert!(!redacted.contains("jan.devries@email.nl"));
+        assert_ne!(detect(&redacted), FormatKind::Yaml);
+        let formatted = super::format_text(&redacted);
+        assert!(formatted.contains("Adres:"));
+        assert!(formatted.contains("Telefoonnummer:"));
+        assert!(!formatted.contains("jan.devries@email.nl"));
     }
 }
