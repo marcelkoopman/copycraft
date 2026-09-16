@@ -149,7 +149,7 @@ impl App {
     }
 
     fn open_redacted_preview(&mut self, text: &str) {
-        let shown = clipboard::formatted(&redact::redact(text));
+        let shown = redact::redact(text);
         let kind = format::detect(&shown);
         if let Err(e) = preview::show(&shown, kind) {
             eprintln!("preview failed: {e}");
