@@ -1,5 +1,6 @@
 #![cfg(target_os = "macos")]
 
+use objc2::AnyThread;
 use objc2::rc::Retained;
 use objc2_app_kit::{
     NSColor, NSFont, NSFontAttributeName, NSForegroundColorAttributeName, NSTextView,
