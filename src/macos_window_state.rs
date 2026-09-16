@@ -12,6 +12,7 @@ thread_local! {
     static SOURCE_TEXT: RefCell<String> = const { RefCell::new(String::new()) };
     static PREVIEW_TEXT: RefCell<String> = const { RefCell::new(String::new()) };
     static PREVIEW_KIND: RefCell<FormatKind> = const { RefCell::new(FormatKind::Plain) };
+    static SOURCE_KIND: RefCell<FormatKind> = const { RefCell::new(FormatKind::Plain) };
 }
 
 define_class!(
