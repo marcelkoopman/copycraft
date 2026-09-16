@@ -30,6 +30,7 @@ winit = "0.30"
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSString", "NSAttributedString", "NSArray", "NSURL"] }
 objc2-app-kit = { version = "0.3", features = [
+    "NSAnimation",
     "NSAnimationContext",
     "NSApplication",
     "NSButton",
