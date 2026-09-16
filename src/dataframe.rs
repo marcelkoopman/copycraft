@@ -77,11 +77,16 @@ fn try_json_object_of_arrays(text: &str) -> Option<DataFrame> {
         columns.push(series.into_column());
     }
     let height = height?;
-    DataFrame::new(height, columns).ok().filter(|df| df.height() >= 1)
+    DataFrame::new(height, columns)
+        .ok()
+        .filter(|df| df.height() >= 1)
 }
 
 fn series_from_json_values(name: &str, items: &[serde_json::Value]) -> Option<Series> {
-    if items.iter().all(|v| v.is_i64() || v.is_u64() || v.is_null()) {
+    if items
+        .iter()
+        .all(|v| v.is_i64() || v.is_u64() || v.is_null())
+    {
         let values: Vec<Option<i64>> = items
             .iter()
             .map(|v| {
@@ -94,7 +99,10 @@ fn series_from_json_values(name: &str, items: &[serde_json::Value]) -> Option<Se
             .collect();
         return Some(Series::new(name.into(), values));
     }
-    if items.iter().all(|v| v.is_f64() || v.is_i64() || v.is_u64() || v.is_null()) {
+    if items
+        .iter()
+        .all(|v| v.is_f64() || v.is_i64() || v.is_u64() || v.is_null())
+    {
         let values: Vec<Option<f64>> = items
             .iter()
             .map(|v| {
@@ -196,7 +204,10 @@ fn top_level_children(text: &str) -> Option<Vec<(&str, &str)>> {
             continue;
         }
         if text[i..].starts_with("<?") || text[i..].starts_with("<!") {
-            i = text[i..].find('>').map(|n| i + n + 1).unwrap_or(bytes.len());
+            i = text[i..]
+                .find('>')
+                .map(|n| i + n + 1)
+                .unwrap_or(bytes.len());
             continue;
         }
         break;
@@ -244,11 +255,7 @@ fn extract_direct_children(inner: &str) -> Option<Vec<(&str, &str)>> {
         out.push((tag, &inner[i..end]));
         i = end;
     }
-    if out.is_empty() {
-        None
-    } else {
-        Some(out)
-    }
+    if out.is_empty() { None } else { Some(out) }
 }
 
 fn most_common_tag<'a>(children: &[(&'a str, &str)]) -> Option<&'a str> {
@@ -346,7 +353,11 @@ fn looks_like_delimited_table(text: &str, separator: u8) -> bool {
     if width < 2 {
         return false;
     }
-    let consistent = lines.iter().take(20).filter(|line| line.split(sep).count() == width).count();
+    let consistent = lines
+        .iter()
+        .take(20)
+        .filter(|line| line.split(sep).count() == width)
+        .count();
     consistent * 2 >= lines.iter().take(20).count().min(lines.len())
         && !looks_like_key_value_blob(text)
 }

@@ -206,7 +206,6 @@ fn dataframe_flash_color() -> Retained<NSColor> {
     NSColor::colorWithCalibratedRed_green_blue_alpha(0.39, 0.82, 1.0, 1.0)
 }
 
-
 fn style_copy_button(copied: bool) {
     COPY_BUTTON.with(|slot| {
         let borrowed = slot.borrow();
