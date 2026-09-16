@@ -1,51 +1,40 @@
 use compression_prompt::{Compressor, CompressorConfig};
 
+pub const MIN_COMPRESS_BYTES: usize = 1024;
+
+pub fn is_large_enough(text: &str) -> bool {
+    text.len() >= MIN_COMPRESS_BYTES
+}
+
 pub fn try_compress(text: &str) -> Option<String> {
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
+    if !is_large_enough(text) {
         return None;
     }
     let config = CompressorConfig {
         target_ratio: 0.5,
         min_input_tokens: 1,
-        min_input_bytes: 1,
+        min_input_bytes: MIN_COMPRESS_BYTES,
     };
-    if let Ok(result) = Compressor::new(config).compress(text) {
-        if !result.compressed.trim().is_empty() {
-            return Some(result.compressed);
-        }
+    let result = Compressor::new(config).compress(text).ok()?;
+    if result.compressed.trim().is_empty() {
+        return None;
     }
-    Some(compact_prompt(trimmed))
-}
-
-fn compact_prompt(text: &str) -> String {
-    const DROP: &[&str] = &[
-        "a", "an", "the", "i", "i'm", "im", "just", "really", "very", "please",
-        "kind", "of", "sort", "that", "this", "those", "these",
-    ];
-    text.split_whitespace()
-        .filter(|word| {
-            let key = word.trim_matches(|c: char| !c.is_alphanumeric()).to_ascii_lowercase();
-            !DROP.contains(&key.as_str())
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+    Some(result.compressed)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::try_compress;
+    use super::{is_large_enough, try_compress};
 
     #[test]
-    fn empty_is_none() {
-        assert!(try_compress("   ").is_none());
+    fn short_text_is_not_large_enough() {
+        assert!(!is_large_enough("i cannot click on the buttons compress"));
+        assert!(try_compress("i cannot click on the buttons compress").is_none());
     }
 
     #[test]
-    fn short_sentence_compresses() {
-        let out = try_compress("i cannot click on the buttons compress").expect("short");
-        assert!(!out.is_empty());
-        assert!(out.to_ascii_lowercase().contains("compress"));
-        assert!(out.len() <= "i cannot click on the buttons compress".len());
+    fn kilobyte_text_is_large_enough() {
+        let src = "please summarize these notes for the team. ".repeat(40);
+        assert!(is_large_enough(&src));
     }
 }
