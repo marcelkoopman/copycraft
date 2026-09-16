@@ -428,6 +428,7 @@ checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 name = "copycraft"
 version = "0.1.7"
 dependencies = [
+ "anyhow",
  "arboard",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
