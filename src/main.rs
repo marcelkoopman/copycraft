@@ -6,6 +6,7 @@ mod icon;
 mod menubar;
 mod preview;
 mod redact;
+mod toolbar_visibility;
 mod transform;
 
 #[cfg(target_os = "macos")]
