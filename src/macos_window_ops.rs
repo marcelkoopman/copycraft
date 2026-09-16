@@ -1,12 +1,3 @@
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum ViewMode {
-    Original,
-    Format,
-    Compress,
-    Redact,
-    Dataframe,
-}
-
 fn apply_preview(body: &str) {
     apply_preview_with_kind(body, format::detect(body));
 }
