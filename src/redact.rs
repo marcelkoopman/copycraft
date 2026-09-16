@@ -1,11 +1,9 @@
 use std::sync::{Arc, OnceLock};
 
-use redact_core::recognizers::pattern::PatternRecognizer;
 use redact_core::recognizers::Recognizer;
+use redact_core::recognizers::pattern::PatternRecognizer;
 use redact_core::types::RecognizerResult;
-use redact_core::{
-    AnalyzerEngine, AnonymizationStrategy, AnonymizerConfig, EntityType,
-};
+use redact_core::{AnalyzerEngine, AnonymizationStrategy, AnonymizerConfig, EntityType};
 
 pub fn redact(text: &str) -> String {
     let config = AnonymizerConfig {
@@ -75,11 +73,7 @@ impl Recognizer for LabeledFieldRecognizer {
         true
     }
 
-    fn analyze(
-        &self,
-        text: &str,
-        _language: &str,
-    ) -> anyhow::Result<Vec<RecognizerResult>> {
+    fn analyze(&self, text: &str, _language: &str) -> anyhow::Result<Vec<RecognizerResult>> {
         let mut results = Vec::new();
         let mut offset = 0usize;
         for line in text.split_inclusive('\n') {
@@ -126,11 +120,7 @@ impl Recognizer for TabularFieldRecognizer {
         true
     }
 
-    fn analyze(
-        &self,
-        text: &str,
-        _language: &str,
-    ) -> anyhow::Result<Vec<RecognizerResult>> {
+    fn analyze(&self, text: &str, _language: &str) -> anyhow::Result<Vec<RecognizerResult>> {
         let Some(table) = parse_pii_table(text) else {
             return Ok(Vec::new());
         };
@@ -178,10 +168,7 @@ struct PiiTable {
 }
 
 fn parse_pii_table(text: &str) -> Option<PiiTable> {
-    let header = text
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())?;
+    let header = text.lines().map(str::trim).find(|line| !line.is_empty())?;
     let delimiter = detect_delimiter(header)?;
     let headers: Vec<&str> = header.split(delimiter).map(str::trim).collect();
     if headers.len() < 2 {
@@ -248,9 +235,7 @@ fn labeled_value_start(line: &str) -> Option<(&str, usize)> {
     if label.is_empty() || label.chars().count() > 40 {
         return None;
     }
-    if entity_for_label(label).is_none() {
-        return None;
-    }
+    entity_for_label(label)?;
     let after = &line[colon + 1..];
     let value = after.trim_start();
     if value.is_empty() {

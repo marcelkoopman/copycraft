@@ -1,6 +1,5 @@
 use crate::format;
 
-const MAX_LABEL_CHARS: usize = 48;
 const MAX_HISTORY: usize = 20;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -96,57 +95,12 @@ pub fn formatted(text: &str) -> String {
     format::format_text(text)
 }
 
-pub fn preview_line(text: &str) -> String {
-    let first = text
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .unwrap_or("(empty)");
-    first.split_whitespace().collect::<Vec<&str>>().join(" ")
-}
-
-pub fn type_and_preview(text: &str) -> (Option<&'static str>, String) {
-    let kind_label = format::detect(text).label();
-    let preview = preview_line(text);
-    if kind_label.is_empty() {
-        (None, truncate_label(&preview))
-    } else {
-        let budget = MAX_LABEL_CHARS.saturating_sub(kind_label.chars().count() + 3);
-        (Some(kind_label), truncate_to(&preview, budget))
-    }
-}
-
 pub fn menu_mark(text: &str) -> &'static str {
     format::detect(text).menu_symbol()
 }
 
 pub fn one_line(text: &str) -> String {
     menu_mark(text).to_string()
-}
-
-fn truncate_to(label: &str, max_chars: usize) -> String {
-    if max_chars == 0 {
-        return String::new();
-    }
-    if label.chars().count() <= max_chars {
-        return label.to_string();
-    }
-    let keep = max_chars.saturating_sub(3).max(1);
-    let mut out: String = label.chars().take(keep).collect();
-    out.push_str("...");
-    out
-}
-
-fn truncate_label(label: &str) -> String {
-    if label.chars().count() <= MAX_LABEL_CHARS {
-        return label.to_string();
-    }
-    let mut out: String = label
-        .chars()
-        .take(MAX_LABEL_CHARS.saturating_sub(3))
-        .collect();
-    out.push_str("...");
-    out
 }
 
 #[cfg(test)]
@@ -168,12 +122,6 @@ mod tests {
         assert_eq!(one_line("<root><item/></root>"), "</>");
     }
 
-    #[test]
-    fn type_and_preview_splits_kind() {
-        let (kind, preview) = super::type_and_preview("<root><item/></root>");
-        assert_eq!(kind, Some("XML"));
-        assert!(preview.contains("<root>"));
-    }
 
     #[test]
     fn menu_mark_hides_content() {
@@ -186,7 +134,10 @@ mod tests {
     #[test]
     fn menu_mark_by_type() {
         assert_eq!(super::menu_mark("{\"a\":1}"), "{}");
-        assert_eq!(super::menu_mark("name: copycraft\nitems:\n  - one\n"), "---");
+        assert_eq!(
+            super::menu_mark("name: copycraft\nitems:\n  - one\n"),
+            "---"
+        );
         assert_eq!(super::menu_mark("<root><item/></root>"), "</>");
         assert_eq!(super::menu_mark("https://example.com/x"), "://");
         assert_eq!(super::menu_mark("fn main() {}"), "fn");

@@ -14,18 +14,6 @@ pub enum FormatKind {
 }
 
 impl FormatKind {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Json => "JSON",
-            Self::Yaml => "YAML",
-            Self::Rust => "Rust",
-            Self::Java => "Java",
-            Self::Url => "URL",
-            Self::Xml => "XML",
-            Self::Text | Self::Plain => "",
-        }
-    }
-
     pub fn menu_symbol(self) -> &'static str {
         match self {
             Self::Json => "{}",
@@ -545,5 +533,4 @@ Salaris: € 3.450";
         assert!(formatted.contains("Telefoonnummer:"));
         assert!(!formatted.contains("jan.devries@email.nl"));
     }
-
 }
