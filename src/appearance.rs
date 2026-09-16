@@ -94,8 +94,7 @@ pub fn apply(theme: Theme) {
                 app.setAppearance(appearance.as_deref());
             }
             Theme::Dark => {
-                let appearance =
-                    unsafe { NSAppearance::appearanceNamed(NSAppearanceNameDarkAqua) };
+                let appearance = unsafe { NSAppearance::appearanceNamed(NSAppearanceNameDarkAqua) };
                 app.setAppearance(appearance.as_deref());
             }
         }

@@ -113,9 +113,7 @@ fn colored_text(source: &str, kind: FormatKind) -> Retained<NSMutableAttributedS
 
 fn color_for(kind: TokenKind) -> Retained<NSColor> {
     match kind {
-        TokenKind::Key | TokenKind::Function => {
-            NSColor::systemBlueColor()
-        }
+        TokenKind::Key | TokenKind::Function => NSColor::systemBlueColor(),
         TokenKind::String => NSColor::systemGreenColor(),
         TokenKind::Number => NSColor::systemOrangeColor(),
         TokenKind::Keyword => NSColor::systemPurpleColor(),
