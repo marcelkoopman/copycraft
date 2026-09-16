@@ -1,4 +1,128 @@
 pub fn redact(text: &str) -> String {
+    text.lines().map(redact_line).collect::<Vec<_>>().join("\n")
+}
+
+fn redact_line(line: &str) -> String {
+    if let Some(redacted) = redact_labeled_line(line) {
+        return redacted;
+    }
+    redact_inline(line)
+}
+
+fn redact_labeled_line(line: &str) -> Option<String> {
+    let (label, value) = split_label(line)?;
+    let key = normalize_label(label);
+    if matches!(key.as_str(), "adres" | "address" | "straat") {
+        return Some(format!("{label}: {}", address_region(value)));
+    }
+    if matches!(
+        key.as_str(),
+        "geboortedatum" | "geboorte datum" | "date of birth" | "dob"
+    ) {
+        return Some(format!("{label}: {}", age_band(value)));
+    }
+    if matches!(key.as_str(), "salaris" | "salary" | "inkomen") {
+        return Some(format!("{label}: {}", salary_band(value)));
+    }
+    let replacement = match key.as_str() {
+        "naam" | "name" | "voornaam" | "achternaam" | "full name" => Some("Verwijderd"),
+        "e-mailadres" | "emailadres" | "e-mail" | "email" | "mail" => Some("Verwijderd"),
+        "telefoonnummer" | "telefoon" | "phone" | "phonenumber" | "mobiel" => Some("Verwijderd"),
+        "bsn" | "sofinummer" => Some("Verwijderd"),
+        _ => None,
+    };
+    replacement.map(|r| format!("{label}: {r}"))
+}
+
+fn split_label(line: &str) -> Option<(&str, &str)> {
+    let idx = line.find(':')?;
+    let label = line[..idx].trim();
+    let value = line[idx + 1..].trim();
+    if label.is_empty() || value.is_empty() {
+        return None;
+    }
+    if label.chars().count() > 40 {
+        return None;
+    }
+    Some((label, value))
+}
+
+fn normalize_label(label: &str) -> String {
+    label
+        .chars()
+        .map(|c| c.to_ascii_lowercase())
+        .filter(|c| *c != '.')
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn address_region(value: &str) -> String {
+    if let Some(city) = value
+        .rsplit(',')
+        .next()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        let city = city
+            .split_whitespace()
+            .filter(|part| !is_postal_code_part(part))
+            .collect::<Vec<_>>()
+            .join(" ");
+        if !city.is_empty() {
+            return format!("Alleen regio ({city})");
+        }
+    }
+    "Verwijderd".into()
+}
+
+fn is_postal_code_part(part: &str) -> bool {
+    let chars: Vec<char> = part.chars().collect();
+    matches!(chars.as_slice(), [a, b, c, d] if a.is_ascii_digit() && b.is_ascii_digit() && c.is_ascii_digit() && d.is_ascii_digit())
+        || matches!(chars.as_slice(), [a, b] if a.is_ascii_alphabetic() && b.is_ascii_alphabetic())
+}
+
+fn age_band(value: &str) -> String {
+    let year = value
+        .split_whitespace()
+        .filter_map(|part| part.parse::<i32>().ok())
+        .find(|n| (1900..=2100).contains(n));
+    let Some(year) = year else {
+        return "Verwijderd".into();
+    };
+    let age = (2026 - year).clamp(0, 120);
+    let lo = (age / 5) * 5;
+    format!("Alleen leeftijdscategorie ({lo}-{} jaar)", lo + 5)
+}
+
+fn salary_band(value: &str) -> String {
+    let digits: String = value.chars().filter(|c| c.is_ascii_digit()).collect();
+    if digits.is_empty() {
+        return "Verwijderd".into();
+    }
+    let amount: u64 = digits.parse().unwrap_or(0);
+    if amount == 0 {
+        return "Verwijderd".into();
+    }
+    let step = if amount >= 1000 { 500 } else { 50 };
+    let lo = (amount / step) * step;
+    format!("€ {} - € {}", nl_amount(lo), nl_amount(lo + step))
+}
+
+fn nl_amount(n: u64) -> String {
+    let s = n.to_string();
+    let mut out = String::new();
+    for (i, ch) in s.chars().rev().enumerate() {
+        if i > 0 && i % 3 == 0 {
+            out.push('.');
+        }
+        out.push(ch);
+    }
+    out.chars().rev().collect()
+}
+
+fn redact_inline(text: &str) -> String {
     let chars: Vec<char> = text.chars().collect();
     let mut out = String::with_capacity(text.len());
     let mut i = 0;
@@ -311,5 +435,26 @@ mod tests {
         assert!(out.contains("[ip]"));
         assert!(!out.contains("NL91ABNA0417164300"));
         assert!(!out.contains("192.168.1.10"));
+    }
+
+    #[test]
+    fn redacts_dutch_personal_record() {
+        let src = "\
+Naam: Jan de Vries
+Adres: Hoofdstraat 45, 9711 AB Groningen
+E-mailadres: jan.devries@email.nl
+Telefoonnummer: 06-12345678
+Geboortedatum: 12 mei 1984
+Salaris: € 3.450";
+        let out = redact(src);
+        assert!(out.contains("Naam: Verwijderd"));
+        assert!(out.contains("Adres: Alleen regio (Groningen)"));
+        assert!(out.contains("E-mailadres: Verwijderd"));
+        assert!(out.contains("Telefoonnummer: Verwijderd"));
+        assert!(out.contains("Geboortedatum: Alleen leeftijdscategorie (40-45 jaar)"));
+        assert!(out.contains("Salaris: € 3.000 - € 3.500"));
+        assert!(!out.contains("Jan de Vries"));
+        assert!(!out.contains("jan.devries"));
+        assert!(!out.contains("06-12345678"));
     }
 }
