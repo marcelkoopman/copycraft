@@ -10,21 +10,45 @@ fn apply_preview_with_kind(body: &str, kind: FormatKind) {
             window.setTitle(&NSString::from_str(kind.preview_heading()));
         }
     });
-    TEXT.with(|slot| {
-        if let Some(text) = slot.borrow().as_ref() {
-            fade_swap_text(text, body, kind);
+    fade_scroll(0.0, 0.16);
+    TARGET.with(|slot| {
+        if let Some(target) = slot.borrow().as_ref() {
+            unsafe {
+                let _: () = msg_send![
+                    &**target,
+                    performSelector: sel!(fadePreviewIn:),
+                    withObject: None::<&AnyObject>,
+                    afterDelay: 0.16
+                ];
+            }
         }
     });
     flash_button(&COPY_BUTTON, "Copied  \u{2713}", "Copy", copy_flash_color(), false);
 }
 
-fn fade_swap_text(text: &NSTextView, body: &str, kind: FormatKind) {
-    text.setAlphaValue(0.0);
-    set_body(text, body, kind);
-    NSAnimationContext::beginGrouping();
-    NSAnimationContext::currentContext().setDuration(0.28);
-    text.animator().setAlphaValue(1.0);
-    NSAnimationContext::endGrouping();
+fn reveal_preview_body() {
+    let kind = PREVIEW_KIND.with(|slot| *slot.borrow());
+    let body = PREVIEW_TEXT.with(|slot| slot.borrow().clone());
+    TEXT.with(|slot| {
+        if let Some(text) = slot.borrow().as_ref() {
+            set_body(text, &body, kind);
+        }
+    });
+    fade_scroll(1.0, 0.28);
+}
+
+fn fade_scroll(alpha: f64, duration: f64) {
+    SCROLL.with(|slot| {
+        let borrowed = slot.borrow();
+        let Some(scroll) = borrowed.as_ref() else {
+            return;
+        };
+        scroll.setWantsLayer(true);
+        NSAnimationContext::beginGrouping();
+        NSAnimationContext::currentContext().setDuration(duration);
+        scroll.animator().setAlphaValue(alpha);
+        NSAnimationContext::endGrouping();
+    });
 }
 
 fn make_toolbar_button(
