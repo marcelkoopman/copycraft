@@ -9,6 +9,8 @@ mod redact;
 mod transform;
 
 #[cfg(target_os = "macos")]
+mod macos_preview_text;
+#[cfg(target_os = "macos")]
 mod macos_window;
 
 fn main() {
