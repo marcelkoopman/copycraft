@@ -2,7 +2,9 @@ use std::time::{Duration, Instant};
 
 use tray_icon::{
     TrayIcon, TrayIconBuilder, TrayIconEvent,
-    menu::{IconMenuItem, Menu, MenuEvent, MenuItem, NativeIcon, PredefinedMenuItem, TextStyle},
+    menu::{
+        IconMenuItem, Menu, MenuEvent, MenuItem, NativeIcon, PredefinedMenuItem, Submenu, TextStyle,
+    },
 };
 use winit::{
     application::ApplicationHandler,
@@ -14,6 +16,7 @@ use crate::clipboard::{self, ClipboardHistory, ClipboardView};
 use crate::format;
 use crate::icon;
 use crate::preview;
+use crate::redact;
 
 const REFRESH: Duration = Duration::from_millis(400);
 
@@ -41,10 +44,16 @@ impl ApplicationHandler for App {
                 }
                 "clear" => self.clear_history(),
                 "clear_clipboard" => self.clear_clipboard(),
-                "current" => self.show_current(),
-                id if id.starts_with("hist_") => {
-                    if let Ok(index) = id.trim_start_matches("hist_").parse::<usize>() {
+                "current_format" => self.show_current(),
+                "current_redact" => self.show_current_redacted(),
+                id if id.starts_with("hist_format_") => {
+                    if let Ok(index) = id.trim_start_matches("hist_format_").parse::<usize>() {
                         self.show_history(index);
+                    }
+                }
+                id if id.starts_with("hist_redact_") => {
+                    if let Ok(index) = id.trim_start_matches("hist_redact_").parse::<usize>() {
+                        self.show_history_redacted(index);
                     }
                 }
                 _ => {}
@@ -118,8 +127,29 @@ impl App {
         }
     }
 
+    fn show_current_redacted(&mut self) {
+        if let Some(text) = self.current_text() {
+            self.open_redacted_preview(&text);
+        }
+    }
+
+    fn show_history_redacted(&mut self, index: usize) {
+        if let Some(text) = self.history.get(index).map(str::to_string) {
+            self.open_redacted_preview(&text);
+        }
+    }
+
     fn open_preview(&mut self, text: &str) {
         let shown = clipboard::formatted(text);
+        let kind = format::detect(&shown);
+        if let Err(e) = preview::show(&shown, kind) {
+            eprintln!("preview failed: {e}");
+        }
+        self.rebuild_menu(true);
+    }
+
+    fn open_redacted_preview(&mut self, text: &str) {
+        let shown = clipboard::formatted(&redact::redact(text));
         let kind = format::detect(&shown);
         if let Err(e) = preview::show(&shown, kind) {
             eprintln!("preview failed: {e}");
@@ -177,8 +207,13 @@ impl App {
 
         let menu = Menu::new();
         let _ = menu.append(&MenuItem::new("Current", false, None));
-        let current = MenuItem::with_id("current", format!("• {label}"), true, None);
-        style_clipboard_item(&current, view.text(), true);
+        let current = clipboard_entry_submenu(
+            "current",
+            format!("• {label}"),
+            view.text().is_some(),
+            view.text(),
+            true,
+        );
         let _ = menu.append(&current);
         let _ = menu.append(&PredefinedMenuItem::separator());
         let history_title = if history_rows.is_empty() {
@@ -192,9 +227,13 @@ impl App {
             let _ = menu.append(&MenuItem::new("(no history yet)", false, None));
         } else {
             for (index, item_label) in history_rows {
-                let id = format!("hist_{index}");
-                let item = MenuItem::with_id(id, item_label, true, None);
-                style_clipboard_item(&item, self.history.get(index), false);
+                let item = clipboard_entry_submenu(
+                    &format!("hist_{index}"),
+                    item_label,
+                    true,
+                    self.history.get(index),
+                    false,
+                );
                 let _ = menu.append(&item);
             }
         }
@@ -228,7 +267,28 @@ impl App {
     }
 }
 
-fn style_clipboard_item(item: &MenuItem, text: Option<&str>, current: bool) {
+fn clipboard_entry_submenu(
+    id: &str,
+    title: String,
+    enabled: bool,
+    text: Option<&str>,
+    current: bool,
+) -> Submenu {
+    let submenu = Submenu::with_id(id, &title, enabled);
+    style_entry_submenu(&submenu, text, current);
+    let (format_id, redact_id) = if id == "current" {
+        ("current_format".to_string(), "current_redact".to_string())
+    } else if let Some(rest) = id.strip_prefix("hist_") {
+        (format!("hist_format_{rest}"), format!("hist_redact_{rest}"))
+    } else {
+        (format!("{id}_format"), format!("{id}_redact"))
+    };
+    let _ = submenu.append(&MenuItem::with_id(format_id, "Format", enabled, None));
+    let _ = submenu.append(&MenuItem::with_id(redact_id, "Redact", enabled, None));
+    submenu
+}
+
+fn style_entry_submenu(item: &Submenu, text: Option<&str>, current: bool) {
     let Some(text) = text else {
         return;
     };
