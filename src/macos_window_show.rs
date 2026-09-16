@@ -25,6 +25,12 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
                 set_body(text, &body, kind);
             }
         });
+        SCROLL.with(|slot| {
+            if let Some(scroll) = slot.borrow().as_ref() {
+                scroll.setWantsLayer(true);
+                scroll.setAlphaValue(1.0);
+            }
+        });
         flash_button(&COPY_BUTTON, "Copied  \u{2713}", "Copy", copy_flash_color(), false);
         flash_button(&SAVE_BUTTON, "Saved  \u{2713}", "Save", save_flash_color(), false);
         return Ok(());
@@ -135,6 +141,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     scroll.setAutohidesScrollers(false);
     scroll.setDrawsBackground(false);
     scroll.setBackgroundColor(&NSColor::clearColor());
+    scroll.setWantsLayer(true);
     scroll.setAutoresizingMask(
         NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
     );
@@ -168,6 +175,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
 
     TARGET.with(|slot| slot.replace(Some(target)));
     TEXT.with(|slot| slot.replace(Some(text)));
+    SCROLL.with(|slot| slot.replace(Some(scroll)));
     ORIGINAL_BUTTON.with(|slot| slot.replace(Some(original_button)));
     FORMAT_BUTTON.with(|slot| slot.replace(Some(format_button)));
     REDACT_BUTTON.with(|slot| slot.replace(Some(redact_button)));
