@@ -77,16 +77,36 @@ define_class!(
         fn dataframe_clicked(&self, _sender: Option<&AnyObject>) {
             let body = SOURCE_TEXT.with(|src| dataframe::try_format(&src.borrow()));
             let Some(body) = body else {
+                flash_button(
+                    &DATAFRAME_BUTTON,
+                    "Failed",
+                    "Dataframe",
+                    error_flash_color(),
+                    true,
+                );
+                reset_later(self, sel!(resetDataframeLabel:));
                 return;
             };
             apply_preview_with_kind(&body, FormatKind::Dataframe);
-            flash_button(&DATAFRAME_BUTTON, "Dataframe  \u{2713}", "Dataframe", dataframe_flash_color(), true);
+            flash_button(
+                &DATAFRAME_BUTTON,
+                "Dataframe  \u{2713}",
+                "Dataframe",
+                dataframe_flash_color(),
+                true,
+            );
             reset_later(self, sel!(resetDataframeLabel:));
         }
 
         #[unsafe(method(resetDataframeLabel:))]
         fn reset_dataframe_label(&self, _sender: Option<&AnyObject>) {
-            flash_button(&DATAFRAME_BUTTON, "Dataframe  \u{2713}", "Dataframe", dataframe_flash_color(), false);
+            flash_button(
+                &DATAFRAME_BUTTON,
+                "Dataframe  \u{2713}",
+                "Dataframe",
+                dataframe_flash_color(),
+                false,
+            );
         }
 
         #[unsafe(method(saveClicked:))]
@@ -157,6 +177,9 @@ fn dataframe_flash_color() -> Retained<NSColor> {
 }
 fn save_flash_color() -> Retained<NSColor> {
     NSColor::colorWithCalibratedRed_green_blue_alpha(1.0, 0.68, 0.36, 1.0)
+}
+fn error_flash_color() -> Retained<NSColor> {
+    NSColor::colorWithCalibratedRed_green_blue_alpha(1.0, 0.35, 0.35, 1.0)
 }
 
 fn flash_button(
