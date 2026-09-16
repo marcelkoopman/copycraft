@@ -76,13 +76,12 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     let target = PreviewTarget::new(mtm);
     let button_h = 24.0;
     let button_w = 84.0;
-    let gap = 6.0;
     let pad = 10.0;
     let button_y = height - toolbar_h + ((toolbar_h - button_h) / 2.0);
     let original_x = pad;
-    let format_x = original_x + button_w + gap;
+    let format_x = original_x + button_w + 6.0;
     let copy_x = width - pad - button_w;
-    let save_x = copy_x - gap - button_w;
+    let save_x = copy_x - 6.0 - button_w;
 
     let original_button = make_toolbar_button(
         mtm,
@@ -100,6 +99,14 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
         false,
     );
     style_title_button(&format_button, "Format", &idle_button_color());
+    let compress_button = make_toolbar_button(
+        mtm,
+        NSRect::new(NSPoint::new(format_x, button_y), NSSize::new(button_w, button_h)),
+        &target,
+        sel!(compressClicked:),
+        false,
+    );
+    style_title_button(&compress_button, "Compress", &idle_button_color());
     let redact_button = make_toolbar_button(
         mtm,
         NSRect::new(NSPoint::new(format_x, button_y), NSSize::new(button_w, button_h)),
@@ -163,6 +170,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     frosted.addSubview(&scroll);
     frosted.addSubview(&original_button);
     frosted.addSubview(&format_button);
+    frosted.addSubview(&compress_button);
     frosted.addSubview(&redact_button);
     frosted.addSubview(&dataframe_button);
     frosted.addSubview(&save_button);
@@ -178,6 +186,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     SCROLL.with(|slot| slot.replace(Some(scroll)));
     ORIGINAL_BUTTON.with(|slot| slot.replace(Some(original_button)));
     FORMAT_BUTTON.with(|slot| slot.replace(Some(format_button)));
+    COMPRESS_BUTTON.with(|slot| slot.replace(Some(compress_button)));
     REDACT_BUTTON.with(|slot| slot.replace(Some(redact_button)));
     DATAFRAME_BUTTON.with(|slot| slot.replace(Some(dataframe_button)));
     SAVE_BUTTON.with(|slot| slot.replace(Some(save_button)));
