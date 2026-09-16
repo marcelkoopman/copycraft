@@ -6,6 +6,7 @@ thread_local! {
     static COPY_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static ORIGINAL_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static FORMAT_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
+    static COMPRESS_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static REDACT_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static DATAFRAME_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static SAVE_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
@@ -60,6 +61,24 @@ define_class!(
         #[unsafe(method(resetFormatLabel:))]
         fn reset_format_label(&self, _sender: Option<&AnyObject>) {
             flash_button(&FORMAT_BUTTON, "Formatted  \u{2713}", "Format", format_flash_color(), false);
+        }
+
+        #[unsafe(method(compressClicked:))]
+        fn compress_clicked(&self, _sender: Option<&AnyObject>) {
+            let body = SOURCE_TEXT.with(|src| compress::try_compress(&src.borrow()));
+            let Some(body) = body else {
+                flash_button(&COMPRESS_BUTTON, "Failed", "Compress", error_flash_color(), true);
+                reset_later(self, sel!(resetCompressLabel:));
+                return;
+            };
+            apply_preview(&body);
+            flash_button(&COMPRESS_BUTTON, "Compressed", "Compress", compress_flash_color(), true);
+            reset_later(self, sel!(resetCompressLabel:));
+        }
+
+        #[unsafe(method(resetCompressLabel:))]
+        fn reset_compress_label(&self, _sender: Option<&AnyObject>) {
+            flash_button(&COMPRESS_BUTTON, "Compressed", "Compress", compress_flash_color(), false);
         }
 
         #[unsafe(method(redactClicked:))]
@@ -157,6 +176,9 @@ fn format_flash_color() -> Retained<NSColor> {
 }
 fn original_flash_color() -> Retained<NSColor> {
     NSColor::colorWithCalibratedRed_green_blue_alpha(0.35, 0.78, 0.98, 1.0)
+}
+fn compress_flash_color() -> Retained<NSColor> {
+    NSColor::colorWithCalibratedRed_green_blue_alpha(0.42, 0.88, 0.72, 1.0)
 }
 fn redact_flash_color() -> Retained<NSColor> {
     NSColor::colorWithCalibratedRed_green_blue_alpha(0.80, 0.48, 0.94, 1.0)
