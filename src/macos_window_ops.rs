@@ -58,8 +58,9 @@ const TOOLBAR_BTN_H: f64 = 24.0;
 const TOOLBAR_H: f64 = 36.0;
 
 fn apply_toolbar_for_kind(kind: FormatKind) {
-    let show_redact = kind.shows_redact();
-    let show_df = kind.shows_dataframe();
+    let source = SOURCE_TEXT.with(|slot| slot.borrow().clone());
+    let show_redact = toolbar_visibility::shows_redact(kind);
+    let show_df = toolbar_visibility::shows_dataframe(kind) || dataframe::try_format(&source).is_some();
     set_button_hidden(&REDACT_BUTTON, !show_redact);
     set_button_hidden(&DATAFRAME_BUTTON, !show_df);
 
