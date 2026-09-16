@@ -40,6 +40,7 @@ objc2-app-kit = { version = "0.3", features = [
     "NSSavePanel",
     "NSScrollView",
     "NSText",
+    "NSTextContainer",
     "NSTextStorage",
     "NSTextView",
     "NSView",
