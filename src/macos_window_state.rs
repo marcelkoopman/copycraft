@@ -14,6 +14,7 @@ thread_local! {
     static PREVIEW_TEXT: RefCell<String> = const { RefCell::new(String::new()) };
     static PREVIEW_KIND: RefCell<FormatKind> = const { RefCell::new(FormatKind::Plain) };
     static SOURCE_KIND: RefCell<FormatKind> = const { RefCell::new(FormatKind::Plain) };
+    static VIEW_MODE: RefCell<ViewMode> = const { RefCell::new(ViewMode::Format) };
 }
 
 define_class!(
@@ -41,26 +42,14 @@ define_class!(
         fn original_clicked(&self, _sender: Option<&AnyObject>) {
             let body = SOURCE_TEXT.with(|src| src.borrow().clone());
             apply_preview(&body);
-            flash_button(&ORIGINAL_BUTTON, "Original  \u{2713}", "Original", original_flash_color(), true);
-            reset_later(self, sel!(resetOriginalLabel:));
-        }
-
-        #[unsafe(method(resetOriginalLabel:))]
-        fn reset_original_label(&self, _sender: Option<&AnyObject>) {
-            flash_button(&ORIGINAL_BUTTON, "Original  \u{2713}", "Original", original_flash_color(), false);
+            select_mode(ViewMode::Original);
         }
 
         #[unsafe(method(formatClicked:))]
         fn format_clicked(&self, _sender: Option<&AnyObject>) {
             let body = SOURCE_TEXT.with(|src| clipboard::formatted(&src.borrow()));
             apply_preview(&body);
-            flash_button(&FORMAT_BUTTON, "Formatted  \u{2713}", "Format", format_flash_color(), true);
-            reset_later(self, sel!(resetFormatLabel:));
-        }
-
-        #[unsafe(method(resetFormatLabel:))]
-        fn reset_format_label(&self, _sender: Option<&AnyObject>) {
-            flash_button(&FORMAT_BUTTON, "Formatted  \u{2713}", "Format", format_flash_color(), false);
+            select_mode(ViewMode::Format);
         }
 
         #[unsafe(method(compressClicked:))]
@@ -72,26 +61,19 @@ define_class!(
                 return;
             };
             apply_preview(&body);
-            flash_button(&COMPRESS_BUTTON, "Compressed", "Compress", compress_flash_color(), true);
-            reset_later(self, sel!(resetCompressLabel:));
+            select_mode(ViewMode::Compress);
         }
 
         #[unsafe(method(resetCompressLabel:))]
         fn reset_compress_label(&self, _sender: Option<&AnyObject>) {
-            flash_button(&COMPRESS_BUTTON, "Compressed", "Compress", compress_flash_color(), false);
+            paint_mode_buttons();
         }
 
         #[unsafe(method(redactClicked:))]
         fn redact_clicked(&self, _sender: Option<&AnyObject>) {
             let body = SOURCE_TEXT.with(|src| redact::redact(&src.borrow()));
             apply_preview(&body);
-            flash_button(&REDACT_BUTTON, "Redacted  \u{2713}", "Redact", redact_flash_color(), true);
-            reset_later(self, sel!(resetRedactLabel:));
-        }
-
-        #[unsafe(method(resetRedactLabel:))]
-        fn reset_redact_label(&self, _sender: Option<&AnyObject>) {
-            flash_button(&REDACT_BUTTON, "Redacted  \u{2713}", "Redact", redact_flash_color(), false);
+            select_mode(ViewMode::Redact);
         }
 
         #[unsafe(method(dataframeClicked:))]
@@ -103,13 +85,12 @@ define_class!(
                 return;
             };
             apply_preview_with_kind(&body, FormatKind::Dataframe);
-            flash_button(&DATAFRAME_BUTTON, "Dataframe  \u{2713}", "Dataframe", dataframe_flash_color(), true);
-            reset_later(self, sel!(resetDataframeLabel:));
+            select_mode(ViewMode::Dataframe);
         }
 
         #[unsafe(method(resetDataframeLabel:))]
         fn reset_dataframe_label(&self, _sender: Option<&AnyObject>) {
-            flash_button(&DATAFRAME_BUTTON, "Dataframe  \u{2713}", "Dataframe", dataframe_flash_color(), false);
+            paint_mode_buttons();
         }
 
         #[unsafe(method(saveClicked:))]
