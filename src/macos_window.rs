@@ -152,11 +152,7 @@ fn style_title_button(button: &NSButton, label: &str, color: &NSColor) {
     };
     unsafe {
         attr.addAttribute_value_range(NSForegroundColorAttributeName, color, all);
-        attr.addAttribute_value_range(
-            NSFontAttributeName,
-            &NSFont::systemFontOfSize(13.0),
-            all,
-        );
+        attr.addAttribute_value_range(NSFontAttributeName, &NSFont::systemFontOfSize(13.0), all);
     }
     button.setAttributedTitle(&attr);
 }
@@ -203,7 +199,11 @@ fn style_original_button(done: bool) {
         let Some(button) = borrowed.as_ref() else {
             return;
         };
-        let label = if done { "Original  \u{2713}" } else { "Original" };
+        let label = if done {
+            "Original  \u{2713}"
+        } else {
+            "Original"
+        };
         let color = if done {
             original_flash_color()
         } else {
@@ -219,7 +219,11 @@ fn style_format_button(done: bool) {
         let Some(button) = borrowed.as_ref() else {
             return;
         };
-        let label = if done { "Formatted  \u{2713}" } else { "Format" };
+        let label = if done {
+            "Formatted  \u{2713}"
+        } else {
+            "Format"
+        };
         let color = if done {
             format_flash_color()
         } else {
@@ -365,7 +369,10 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
 
     let original_button = make_title_button(
         mtm,
-        NSRect::new(NSPoint::new(original_x, button_y), NSSize::new(button_w, button_h)),
+        NSRect::new(
+            NSPoint::new(original_x, button_y),
+            NSSize::new(button_w, button_h),
+        ),
         &target,
         sel!(originalClicked:),
     );
@@ -373,7 +380,10 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
 
     let format_button = make_title_button(
         mtm,
-        NSRect::new(NSPoint::new(format_x, button_y), NSSize::new(button_w, button_h)),
+        NSRect::new(
+            NSPoint::new(format_x, button_y),
+            NSSize::new(button_w, button_h),
+        ),
         &target,
         sel!(formatClicked:),
     );
@@ -381,7 +391,10 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
 
     let redact_button = make_title_button(
         mtm,
-        NSRect::new(NSPoint::new(redact_x, button_y), NSSize::new(button_w, button_h)),
+        NSRect::new(
+            NSPoint::new(redact_x, button_y),
+            NSSize::new(button_w, button_h),
+        ),
         &target,
         sel!(redactClicked:),
     );
@@ -389,7 +402,10 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
 
     let copy_button = make_title_button(
         mtm,
-        NSRect::new(NSPoint::new(copy_x, button_y), NSSize::new(button_w, button_h)),
+        NSRect::new(
+            NSPoint::new(copy_x, button_y),
+            NSSize::new(button_w, button_h),
+        ),
         &target,
         sel!(copyClicked:),
     );
