@@ -26,6 +26,19 @@ impl FormatKind {
         }
     }
 
+    pub fn menu_symbol(self) -> &'static str {
+        match self {
+            Self::Json => "{}",
+            Self::Yaml => "---",
+            Self::Rust => "fn",
+            Self::Java => "Jv",
+            Self::Url => "://",
+            Self::Xml => "</>",
+            Self::Text => "¶",
+            Self::Plain => "Aa",
+        }
+    }
+
     pub fn preview_heading(self) -> &'static str {
         match self {
             Self::Json => "Formatted JSON",
@@ -411,6 +424,19 @@ fn count_open(line: &str) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::{FormatKind, detect, indent_braces, pretty_xml};
+
+    #[test]
+    fn menu_symbols_are_type_marks() {
+        use super::FormatKind::*;
+        assert_eq!(Json.menu_symbol(), "{}");
+        assert_eq!(Yaml.menu_symbol(), "---");
+        assert_eq!(Rust.menu_symbol(), "fn");
+        assert_eq!(Java.menu_symbol(), "Jv");
+        assert_eq!(Url.menu_symbol(), "://");
+        assert_eq!(Xml.menu_symbol(), "</>");
+        assert_eq!(Text.menu_symbol(), "¶");
+        assert_eq!(Plain.menu_symbol(), "Aa");
+    }
 
     #[test]
     fn accent_rgba_for_typed_kinds() {

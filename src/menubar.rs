@@ -233,7 +233,7 @@ impl App {
             None,
         ));
         self.tray.set_menu(Some(Box::new(menu)));
-        let _ = self.tray.set_tooltip(Some(label.as_str()));
+        let _ = self.tray.set_tooltip(Some("Copycraft"));
         self.tray.set_title(None::<&str>);
     }
 }
@@ -254,24 +254,15 @@ fn style_entry_item(item: &MenuItem, text: Option<&str>, current: bool) {
     let Some(text) = text else {
         return;
     };
-    let (kind, preview) = clipboard::type_and_preview(text);
-    let Some(kind) = kind else {
-        let plain = if current {
-            format!("• {preview}")
-        } else {
-            preview
-        };
-        item.set_text(plain);
-        return;
-    };
-    let mut parts: Vec<(String, TextStyle)> = Vec::new();
+    let mark = clipboard::menu_mark(text).to_string();
     if current {
-        parts.push(("• ".into(), TextStyle::Default));
+        item.set_styled_text(vec![
+            ("• ".to_string(), TextStyle::Default),
+            (mark, TextStyle::Secondary),
+        ]);
+    } else {
+        item.set_styled_text(vec![(mark, TextStyle::Secondary)]);
     }
-    parts.push((kind.into(), TextStyle::Default));
-    parts.push((" | ".into(), TextStyle::Secondary));
-    parts.push((preview, TextStyle::Secondary));
-    item.set_styled_text(parts);
 }
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {

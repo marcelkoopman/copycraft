@@ -116,11 +116,12 @@ pub fn type_and_preview(text: &str) -> (Option<&'static str>, String) {
     }
 }
 
+pub fn menu_mark(text: &str) -> &'static str {
+    format::detect(text).menu_symbol()
+}
+
 pub fn one_line(text: &str) -> String {
-    match type_and_preview(text) {
-        (Some(kind), preview) => format!("{kind} | {preview}"),
-        (None, preview) => preview,
-    }
+    menu_mark(text).to_string()
 }
 
 fn truncate_to(label: &str, max_chars: usize) -> String {
@@ -153,20 +154,18 @@ mod tests {
     use super::{ClipboardHistory, formatted, one_line, try_format_json};
 
     #[test]
-    fn one_line_uses_first_nonempty_line() {
-        assert_eq!(one_line("\n  Hello world  \nmore"), "Hello world");
+    fn one_line_uses_symbol_for_plain_text() {
+        assert_eq!(one_line("\n  Hello world  \nmore"), "¶");
     }
 
     #[test]
     fn one_line_marks_json() {
-        let label = one_line("{\"name\":\"copycraft\"}");
-        assert!(label.starts_with("JSON | "));
+        assert_eq!(one_line("{\"name\":\"copycraft\"}"), "{}");
     }
 
     #[test]
     fn one_line_marks_xml() {
-        let label = one_line("<root><item/></root>");
-        assert!(label.starts_with("XML | "));
+        assert_eq!(one_line("<root><item/></root>"), "</>");
     }
 
     #[test]
@@ -174,6 +173,24 @@ mod tests {
         let (kind, preview) = super::type_and_preview("<root><item/></root>");
         assert_eq!(kind, Some("XML"));
         assert!(preview.contains("<root>"));
+    }
+
+    #[test]
+    fn menu_mark_hides_content() {
+        let mark = super::menu_mark("Naam: Jan de Vries\nE-mailadres: jan@x.nl");
+        assert_eq!(mark, "¶");
+        assert!(!mark.contains("Jan"));
+        assert!(!mark.contains("@"));
+    }
+
+    #[test]
+    fn menu_mark_by_type() {
+        assert_eq!(super::menu_mark("{\"a\":1}"), "{}");
+        assert_eq!(super::menu_mark("name: copycraft\nitems:\n  - one\n"), "---");
+        assert_eq!(super::menu_mark("<root><item/></root>"), "</>");
+        assert_eq!(super::menu_mark("https://example.com/x"), "://");
+        assert_eq!(super::menu_mark("fn main() {}"), "fn");
+        assert_eq!(super::menu_mark("plain"), "Aa");
     }
 
     #[test]
@@ -204,10 +221,9 @@ mod tests {
     }
 
     #[test]
-    fn one_line_truncates() {
+    fn one_line_is_short_symbol() {
         let label = one_line(&"a".repeat(80));
-        assert!(label.chars().count() <= 48);
-        assert!(label.ends_with("..."));
+        assert_eq!(label, "Aa");
     }
 
     #[test]
