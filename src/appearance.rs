@@ -66,7 +66,9 @@ fn store(theme: Theme) {
             Theme::Light => "light",
             Theme::Dark => "dark",
         };
-        defaults.setObject_forKey(Some(&NSString::from_str(value)), &key);
+        unsafe {
+            defaults.setObject_forKey(Some(&NSString::from_str(value)), &key);
+        }
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -88,11 +90,12 @@ pub fn apply(theme: Theme) {
         match theme {
             Theme::System => app.setAppearance(None),
             Theme::Light => {
-                let appearance = NSAppearance::appearanceNamed(NSAppearanceNameAqua);
+                let appearance = unsafe { NSAppearance::appearanceNamed(NSAppearanceNameAqua) };
                 app.setAppearance(appearance.as_deref());
             }
             Theme::Dark => {
-                let appearance = NSAppearance::appearanceNamed(NSAppearanceNameDarkAqua);
+                let appearance =
+                    unsafe { NSAppearance::appearanceNamed(NSAppearanceNameDarkAqua) };
                 app.setAppearance(appearance.as_deref());
             }
         }
