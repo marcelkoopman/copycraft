@@ -41,6 +41,23 @@ impl FormatKind {
         }
     }
 
+    pub fn suggested_extension(self) -> &'static str {
+        match self {
+            Self::Json => "json",
+            Self::Yaml => "yaml",
+            Self::Rust => "rs",
+            Self::Java => "java",
+            Self::Url => "txt",
+            Self::Xml => "xml",
+            Self::Dataframe => "csv",
+            Self::Text | Self::Plain => "txt",
+        }
+    }
+
+    pub fn suggested_filename(self) -> String {
+        format!("clipboard.{}", self.suggested_extension())
+    }
+
     pub fn accent_rgba(self) -> Option<[u8; 4]> {
         match self {
             Self::Json => Some([245, 197, 66, 255]),
@@ -431,6 +448,18 @@ mod tests {
         assert_eq!(Dataframe.menu_symbol(), "DF");
         assert_eq!(Text.menu_symbol(), "¶");
         assert_eq!(Plain.menu_symbol(), "Aa");
+    }
+
+    #[test]
+    fn suggested_extensions_match_kind() {
+        assert_eq!(FormatKind::Json.suggested_extension(), "json");
+        assert_eq!(FormatKind::Yaml.suggested_extension(), "yaml");
+        assert_eq!(FormatKind::Rust.suggested_extension(), "rs");
+        assert_eq!(FormatKind::Java.suggested_extension(), "java");
+        assert_eq!(FormatKind::Xml.suggested_extension(), "xml");
+        assert_eq!(FormatKind::Dataframe.suggested_extension(), "csv");
+        assert_eq!(FormatKind::Plain.suggested_extension(), "txt");
+        assert_eq!(FormatKind::Dataframe.suggested_filename(), "clipboard.csv");
     }
 
     #[test]
