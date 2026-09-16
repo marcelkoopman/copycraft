@@ -1,8 +1,13 @@
 use std::time::{Duration, Instant};
 
+use global_hotkey::hotkey::{Code, HotKey, Modifiers};
+use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use tray_icon::{
     TrayIcon, TrayIconBuilder, TrayIconEvent,
-    menu::{IconMenuItem, Menu, MenuEvent, MenuItem, NativeIcon, PredefinedMenuItem, TextStyle},
+    menu::{
+        CheckMenuItem, IconMenuItem, Menu, MenuEvent, MenuItem, NativeIcon, PredefinedMenuItem,
+        Submenu, TextStyle,
+    },
 };
 use winit::{
     application::ApplicationHandler,
@@ -10,6 +15,7 @@ use winit::{
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
 };
 
+use crate::appearance::{self, Theme};
 use crate::clipboard::{self, ClipboardHistory, ClipboardView};
 use crate::format;
 use crate::icon;
@@ -24,6 +30,8 @@ struct App {
     history_len: usize,
     last_kind: Option<format::FormatKind>,
     skip_record: Option<String>,
+    _hotkeys: GlobalHotKeyManager,
+    format_hotkey_id: u32,
 }
 
 impl ApplicationHandler for App {
@@ -42,12 +50,25 @@ impl ApplicationHandler for App {
                 "clear" => self.clear_history(),
                 "clear_clipboard" => self.clear_clipboard(),
                 "current" => self.show_current(),
+                "format_preview" => self.format_and_preview(),
                 id if id.starts_with("hist_") => {
                     if let Ok(index) = id.trim_start_matches("hist_").parse::<usize>() {
                         self.show_history(index);
                     }
                 }
+                id if Theme::from_id(id).is_some() => {
+                    if let Some(theme) = Theme::from_id(id) {
+                        theme.save();
+                        self.rebuild_menu(true);
+                    }
+                }
                 _ => {}
+            }
+        }
+
+        while let Ok(event) = GlobalHotKeyEvent::receiver().try_recv() {
+            if event.id == self.format_hotkey_id && event.state == HotKeyState::Pressed {
+                self.format_and_preview();
             }
         }
 
@@ -63,6 +84,14 @@ impl ApplicationHandler for App {
 impl App {
     fn current_text(&self) -> Option<String> {
         ClipboardView::from_os().text().map(str::to_string)
+    }
+
+    fn format_and_preview(&mut self) {
+        let Some(text) = self.current_text() else {
+            return;
+        };
+        let formatted = clipboard::formatted(&text);
+        self.open_preview(&formatted);
     }
 
     fn clear_history(&mut self) {
@@ -208,6 +237,14 @@ impl App {
         }
 
         let _ = menu.append(&PredefinedMenuItem::separator());
+        let _ = menu.append(&MenuItem::with_id(
+            "format_preview",
+            "Format & preview    ⌃⌥⌘F",
+            true,
+            None,
+        ));
+        let _ = menu.append(&appearance_menu());
+        let _ = menu.append(&PredefinedMenuItem::separator());
         let _ = menu.append(&IconMenuItem::with_id_and_native_icon(
             "clear_clipboard",
             "Clear clipboard",
@@ -234,6 +271,33 @@ impl App {
         let _ = self.tray.set_tooltip(Some("Copycraft"));
         self.tray.set_title(None::<&str>);
     }
+}
+
+fn appearance_menu() -> Submenu {
+    let current = Theme::load();
+    let menu = Submenu::new("Appearance", true);
+    let _ = menu.append(&CheckMenuItem::with_id(
+        Theme::System.as_id(),
+        "System",
+        true,
+        current == Theme::System,
+        None,
+    ));
+    let _ = menu.append(&CheckMenuItem::with_id(
+        Theme::Light.as_id(),
+        "Light",
+        true,
+        current == Theme::Light,
+        None,
+    ));
+    let _ = menu.append(&CheckMenuItem::with_id(
+        Theme::Dark.as_id(),
+        "Dark",
+        true,
+        current == Theme::Dark,
+        None,
+    ));
+    menu
 }
 
 fn clipboard_entry_item(
@@ -263,7 +327,20 @@ fn style_entry_item(item: &MenuItem, text: Option<&str>, current: bool) {
     }
 }
 
+fn register_format_hotkey() -> Result<(GlobalHotKeyManager, u32), Box<dyn std::error::Error>> {
+    let manager = GlobalHotKeyManager::new()?;
+    let hotkey = HotKey::new(
+        Some(Modifiers::CONTROL | Modifiers::ALT | Modifiers::SUPER),
+        Code::KeyF,
+    );
+    let id = hotkey.id();
+    manager.register(hotkey)?;
+    Ok((manager, id))
+}
+
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
+    appearance::apply(Theme::load());
+    let (hotkeys, format_hotkey_id) = register_format_hotkey()?;
     let icon = icon::menu_icon()?;
     let menu = Menu::new();
     let _ = menu.append(&MenuItem::new("Clipboard", false, None));
@@ -283,6 +360,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         history_len: 0,
         last_kind: None,
         skip_record: None,
+        _hotkeys: hotkeys,
+        format_hotkey_id,
     };
     app.rebuild_menu(true);
 

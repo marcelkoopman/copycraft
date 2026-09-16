@@ -51,6 +51,61 @@ fn fade_scroll(alpha: f64, duration: f64) {
     });
 }
 
+fn select_mode(mode: ViewMode) {
+    VIEW_MODE.with(|slot| slot.replace(mode));
+    paint_mode_buttons();
+}
+
+fn paint_mode_buttons() {
+    let mode = VIEW_MODE.with(|slot| *slot.borrow());
+    paint_mode_button(
+        &ORIGINAL_BUTTON,
+        "Original",
+        original_flash_color(),
+        mode == ViewMode::Original,
+    );
+    paint_mode_button(
+        &FORMAT_BUTTON,
+        "Format",
+        format_flash_color(),
+        mode == ViewMode::Format,
+    );
+    paint_mode_button(
+        &COMPRESS_BUTTON,
+        "Compress",
+        compress_flash_color(),
+        mode == ViewMode::Compress,
+    );
+    paint_mode_button(
+        &REDACT_BUTTON,
+        "Redact",
+        redact_flash_color(),
+        mode == ViewMode::Redact,
+    );
+    paint_mode_button(
+        &DATAFRAME_BUTTON,
+        "Dataframe",
+        dataframe_flash_color(),
+        mode == ViewMode::Dataframe,
+    );
+}
+
+fn paint_mode_button(
+    slot: &'static std::thread::LocalKey<RefCell<Option<Retained<NSButton>>>>,
+    label: &str,
+    selected: Retained<NSColor>,
+    on: bool,
+) {
+    slot.with(|cell| {
+        let borrowed = cell.borrow();
+        let Some(button) = borrowed.as_ref() else {
+            return;
+        };
+        let color = if on { selected } else { idle_button_color() };
+        style_title_button(button, label, &color);
+    });
+}
+
 const TOOLBAR_PAD: f64 = 10.0;
 const TOOLBAR_GAP: f64 = 6.0;
 const TOOLBAR_BTN_W: f64 = 84.0;
@@ -84,6 +139,7 @@ fn apply_toolbar_for_kind(kind: FormatKind) {
     if show_df {
         place_button(&DATAFRAME_BUTTON, x, y);
     }
+    paint_mode_buttons();
 }
 
 fn set_button_hidden(
