@@ -192,3 +192,45 @@ fn editor_font() -> Retained<NSFont> {
     }
     NSFont::monospacedSystemFontOfSize_weight(14.0, 0.0)
 }
+
+fn style_title_button(button: &NSButton, label: &str, color: &NSColor) {
+    let ns = NSString::from_str(label);
+    let attr = NSMutableAttributedString::initWithString(NSMutableAttributedString::alloc(), &ns);
+    let all = NSRange {
+        location: 0,
+        length: ns.length(),
+    };
+    unsafe {
+        attr.addAttribute_value_range(NSForegroundColorAttributeName, color, all);
+        attr.addAttribute_value_range(NSFontAttributeName, &NSFont::systemFontOfSize(13.0), all);
+    }
+    button.setAttributedTitle(&attr);
+}
+
+fn idle_button_color() -> Retained<NSColor> {
+    NSColor::colorWithCalibratedRed_green_blue_alpha(0.86, 0.89, 0.93, 1.0)
+}
+
+fn copy_flash_color() -> Retained<NSColor> {
+    NSColor::colorWithCalibratedRed_green_blue_alpha(0.32, 0.84, 0.54, 1.0)
+}
+
+fn format_flash_color() -> Retained<NSColor> {
+    NSColor::colorWithCalibratedRed_green_blue_alpha(0.96, 0.77, 0.26, 1.0)
+}
+
+fn original_flash_color() -> Retained<NSColor> {
+    NSColor::colorWithCalibratedRed_green_blue_alpha(0.35, 0.78, 0.98, 1.0)
+}
+
+fn redact_flash_color() -> Retained<NSColor> {
+    NSColor::colorWithCalibratedRed_green_blue_alpha(0.80, 0.48, 0.94, 1.0)
+}
+
+fn dataframe_flash_color() -> Retained<NSColor> {
+    NSColor::colorWithCalibratedRed_green_blue_alpha(0.39, 0.82, 1.0, 1.0)
+}
+
+fn save_flash_color() -> Retained<NSColor> {
+    NSColor::colorWithCalibratedRed_green_blue_alpha(1.0, 0.68, 0.36, 1.0)
+}
