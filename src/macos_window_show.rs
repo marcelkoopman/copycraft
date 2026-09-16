@@ -6,6 +6,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     PREVIEW_TEXT.with(|slot| slot.replace(body.clone()));
     PREVIEW_KIND.with(|slot| slot.replace(kind));
     SOURCE_KIND.with(|slot| slot.replace(kind));
+    VIEW_MODE.with(|slot| slot.replace(ViewMode::Format));
 
     let app = NSApplication::sharedApplication(mtm);
     #[allow(deprecated)]
@@ -98,7 +99,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
         sel!(formatClicked:),
         false,
     );
-    style_title_button(&format_button, "Format", &idle_button_color());
+    style_title_button(&format_button, "Format", &format_flash_color());
     let compress_button = make_toolbar_button(
         mtm,
         NSRect::new(NSPoint::new(format_x, button_y), NSSize::new(button_w, button_h)),
