@@ -24,5 +24,14 @@ use crate::macos_preview_text::{configure_scrolling_text, editor_font, set_body}
 use crate::redact;
 use crate::toolbar_visibility;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ViewMode {
+    Original,
+    Format,
+    Compress,
+    Redact,
+    Dataframe,
+}
+
 include!("macos_window_state.rs");
 include!("macos_window_show.rs");
