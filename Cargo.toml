@@ -19,9 +19,9 @@ info_plist_entries = { LSUIElement = true }
 [dependencies]
 anyhow = "1.0.104"
 arboard = "3"
-base64 = "0.22"
+base64 = "0.23"
 compression-prompt = "0.1.2"
-global-hotkey = "0.7"
+global-hotkey = "0.8"
 polars = { version = "0.55.2", default-features = false, features = ["csv", "json", "fmt", "dtype-slim"] }
 redact-core = "0.12"
 serde_json = "1"
