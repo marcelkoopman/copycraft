@@ -670,6 +670,7 @@ version = "0.1.11"
 dependencies = [
  "anyhow",
  "arboard",
+ "base64",
  "compression-prompt",
  "global-hotkey",
  "objc2 0.6.4",

@@ -26,9 +26,13 @@ pub fn shows_compress(kind: FormatKind) -> bool {
     )
 }
 
+pub fn shows_decode(kind: FormatKind) -> bool {
+    matches!(kind, FormatKind::Plain | FormatKind::Text | FormatKind::Url)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{shows_compress, shows_dataframe, shows_redact};
+    use super::{shows_compress, shows_dataframe, shows_decode, shows_redact};
     use crate::format::FormatKind;
 
     #[test]
@@ -43,6 +47,10 @@ mod tests {
             assert!(!shows_dataframe(kind), "{kind:?}");
             assert!(shows_compress(kind), "{kind:?}");
         }
+        assert!(!shows_decode(FormatKind::Rust));
+        assert!(!shows_decode(FormatKind::Java));
+        assert!(!shows_decode(FormatKind::Yaml));
+        assert!(shows_decode(FormatKind::Url));
     }
 
     #[test]
@@ -50,6 +58,7 @@ mod tests {
         assert!(!shows_redact(FormatKind::Json));
         assert!(shows_dataframe(FormatKind::Json));
         assert!(!shows_compress(FormatKind::Json));
+        assert!(!shows_decode(FormatKind::Json));
     }
 
     #[test]
@@ -57,6 +66,7 @@ mod tests {
         assert!(!shows_redact(FormatKind::Xml));
         assert!(shows_dataframe(FormatKind::Xml));
         assert!(!shows_compress(FormatKind::Xml));
+        assert!(!shows_decode(FormatKind::Xml));
     }
 
     #[test]
@@ -64,8 +74,11 @@ mod tests {
         assert!(shows_redact(FormatKind::Dataframe));
         assert!(shows_dataframe(FormatKind::Dataframe));
         assert!(!shows_compress(FormatKind::Dataframe));
+        assert!(!shows_decode(FormatKind::Dataframe));
         assert!(shows_redact(FormatKind::Text));
         assert!(!shows_dataframe(FormatKind::Text));
         assert!(shows_compress(FormatKind::Text));
+        assert!(shows_decode(FormatKind::Text));
+        assert!(shows_decode(FormatKind::Plain));
     }
 }

@@ -71,6 +71,12 @@ fn paint_mode_buttons() {
         mode == ViewMode::Format,
     );
     paint_mode_button(
+        &DECODE_BUTTON,
+        "Decode",
+        decode_flash_color(),
+        mode == ViewMode::Decode,
+    );
+    paint_mode_button(
         &COMPRESS_BUTTON,
         "Compress",
         compress_flash_color(),
@@ -118,9 +124,12 @@ fn apply_toolbar_for_kind(kind: FormatKind) {
     let show_df = toolbar_visibility::shows_dataframe(kind) || dataframe::try_format(&source).is_some();
     let show_compress =
         toolbar_visibility::shows_compress(kind) && compress::is_large_enough(&source);
+    let show_decode =
+        toolbar_visibility::shows_decode(kind) && decode::try_decode(&source).is_some();
     set_button_hidden(&REDACT_BUTTON, !show_redact);
     set_button_hidden(&DATAFRAME_BUTTON, !show_df);
     set_button_hidden(&COMPRESS_BUTTON, !show_compress);
+    set_button_hidden(&DECODE_BUTTON, !show_decode);
 
     let y = (TOOLBAR_H - TOOLBAR_BTN_H) / 2.0;
     let mut x = TOOLBAR_PAD;
@@ -128,6 +137,10 @@ fn apply_toolbar_for_kind(kind: FormatKind) {
     x += TOOLBAR_BTN_W + TOOLBAR_GAP;
     place_button(&FORMAT_BUTTON, x, y);
     x += TOOLBAR_BTN_W + TOOLBAR_GAP;
+    if show_decode {
+        place_button(&DECODE_BUTTON, x, y);
+        x += TOOLBAR_BTN_W + TOOLBAR_GAP;
+    }
     if show_compress {
         place_button(&COMPRESS_BUTTON, x, y);
         x += TOOLBAR_BTN_W + TOOLBAR_GAP;

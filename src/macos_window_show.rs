@@ -100,6 +100,14 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
         false,
     );
     style_title_button(&format_button, "Format", &format_flash_color());
+    let decode_button = make_toolbar_button(
+        mtm,
+        NSRect::new(NSPoint::new(format_x, button_y), NSSize::new(button_w, button_h)),
+        &target,
+        sel!(decodeClicked:),
+        false,
+    );
+    style_title_button(&decode_button, "Decode", &idle_button_color());
     let compress_button = make_toolbar_button(
         mtm,
         NSRect::new(NSPoint::new(format_x, button_y), NSSize::new(button_w, button_h)),
@@ -171,6 +179,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     frosted.addSubview(&scroll);
     frosted.addSubview(&original_button);
     frosted.addSubview(&format_button);
+    frosted.addSubview(&decode_button);
     frosted.addSubview(&compress_button);
     frosted.addSubview(&redact_button);
     frosted.addSubview(&dataframe_button);
@@ -187,6 +196,7 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     SCROLL.with(|slot| slot.replace(Some(scroll)));
     ORIGINAL_BUTTON.with(|slot| slot.replace(Some(original_button)));
     FORMAT_BUTTON.with(|slot| slot.replace(Some(format_button)));
+    DECODE_BUTTON.with(|slot| slot.replace(Some(decode_button)));
     COMPRESS_BUTTON.with(|slot| slot.replace(Some(compress_button)));
     REDACT_BUTTON.with(|slot| slot.replace(Some(redact_button)));
     DATAFRAME_BUTTON.with(|slot| slot.replace(Some(dataframe_button)));
