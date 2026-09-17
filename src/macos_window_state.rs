@@ -6,6 +6,7 @@ thread_local! {
     static COPY_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static ORIGINAL_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static FORMAT_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
+    static DECODE_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static COMPRESS_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static REDACT_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static DATAFRAME_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
@@ -50,6 +51,23 @@ define_class!(
             let body = SOURCE_TEXT.with(|src| clipboard::formatted(&src.borrow()));
             apply_preview(&body);
             select_mode(ViewMode::Format);
+        }
+
+        #[unsafe(method(decodeClicked:))]
+        fn decode_clicked(&self, _sender: Option<&AnyObject>) {
+            let body = SOURCE_TEXT.with(|src| decode::try_decode(&src.borrow()));
+            let Some(body) = body else {
+                flash_button(&DECODE_BUTTON, "Failed", "Decode", error_flash_color(), true);
+                reset_later(self, sel!(resetDecodeLabel:));
+                return;
+            };
+            apply_preview(&clipboard::formatted(&body));
+            select_mode(ViewMode::Decode);
+        }
+
+        #[unsafe(method(resetDecodeLabel:))]
+        fn reset_decode_label(&self, _sender: Option<&AnyObject>) {
+            paint_mode_buttons();
         }
 
         #[unsafe(method(compressClicked:))]
@@ -154,6 +172,9 @@ fn copy_flash_color() -> Retained<NSColor> {
 }
 fn format_flash_color() -> Retained<NSColor> {
     NSColor::colorWithCalibratedRed_green_blue_alpha(0.96, 0.77, 0.26, 1.0)
+}
+fn decode_flash_color() -> Retained<NSColor> {
+    NSColor::colorWithCalibratedRed_green_blue_alpha(0.62, 0.55, 1.0, 1.0)
 }
 fn original_flash_color() -> Retained<NSColor> {
     NSColor::colorWithCalibratedRed_green_blue_alpha(0.35, 0.78, 0.98, 1.0)

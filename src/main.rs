@@ -2,6 +2,7 @@ mod appearance;
 mod clipboard;
 mod compress;
 mod dataframe;
+mod decode;
 mod format;
 mod highlight;
 mod icon;
