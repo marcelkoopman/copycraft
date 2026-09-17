@@ -24,17 +24,35 @@ fn looks_like_delimited_table(text: &str, separator: u8) -> bool {
     if lines.len() < 2 {
         return false;
     }
-    let width = lines[0].split(sep).count();
+    let width = delimited_field_count(lines[0], sep);
     if width < 2 {
         return false;
     }
+    let sample_len = lines.len().min(20);
     let consistent = lines
         .iter()
         .take(20)
-        .filter(|line| line.split(sep).count() == width)
+        .filter(|line| delimited_field_count(line, sep) == width)
         .count();
-    consistent * 2 >= lines.iter().take(20).count().min(lines.len())
-        && !looks_like_key_value_blob(text)
+    consistent * 2 >= sample_len && !looks_like_key_value_blob(text)
+}
+
+fn delimited_field_count(line: &str, sep: char) -> usize {
+    let mut fields = 1usize;
+    let mut in_quotes = false;
+    let mut chars = line.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '"' {
+            if in_quotes && chars.peek() == Some(&'"') {
+                chars.next();
+            } else {
+                in_quotes = !in_quotes;
+            }
+        } else if ch == sep && !in_quotes {
+            fields += 1;
+        }
+    }
+    fields
 }
 
 fn looks_like_key_value_blob(text: &str) -> bool {
@@ -71,6 +89,44 @@ Id;Naam;Salaris
         assert!(out.contains("Naam"));
         assert!(out.contains("Jan"));
         assert!(out.contains("3450"));
+    }
+
+    #[test]
+    fn formats_comma_csv() {
+        let src = "name,age\nalice,30\nbob,40";
+        let out = try_format(src).expect("csv");
+        assert!(out.contains("name"));
+        assert!(out.contains("alice"));
+        assert!(super::looks_like_csv(src));
+        assert!(!super::looks_like_tsv(src));
+    }
+
+    #[test]
+    fn formats_csv_with_quoted_commas() {
+        let src = "\
+Id,Naam,Geboortedatum,Adres,Telefoonnummer,Salaris
+1,Jan de Vries,1984-05-12,\"Hoofdstraat 45, Groningen\",06-12345678,3450
+2,Anja Bakker,1991-11-23,\"Kerkplein 2, Utrecht\",06-87654321,2900
+3,Mohammed El Amin,1978-02-05,\"Stationstraat 120, Rotterdam\",06-11223344,4200";
+        let out = try_format(src).expect("quoted csv");
+        assert!(out.contains("Naam"));
+        assert!(out.contains("Jan de Vries"));
+        assert!(out.contains("Groningen"));
+        assert!(super::looks_like_csv(src));
+        assert_eq!(
+            super::delimited_field_count(src.lines().nth(1).unwrap(), ','),
+            6
+        );
+    }
+
+    #[test]
+    fn formats_tsv() {
+        let src = "name\tage\nalice\t30\nbob\t40";
+        let out = try_format(src).expect("tsv");
+        assert!(out.contains("name"));
+        assert!(out.contains("alice"));
+        assert!(super::looks_like_tsv(src));
+        assert!(!super::looks_like_csv(src));
     }
 
     #[test]

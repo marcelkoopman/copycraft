@@ -170,7 +170,7 @@ struct PiiTable {
 fn parse_pii_table(text: &str) -> Option<PiiTable> {
     let header = text.lines().map(str::trim).find(|line| !line.is_empty())?;
     let delimiter = detect_delimiter(header)?;
-    let headers: Vec<&str> = header.split(delimiter).map(str::trim).collect();
+    let headers = split_delimited(header, delimiter);
     if headers.len() < 2 {
         return None;
     }
@@ -191,7 +191,10 @@ fn parse_pii_table(text: &str) -> Option<PiiTable> {
 fn detect_delimiter(header: &str) -> Option<char> {
     let semis = header.matches(';').count();
     let commas = header.matches(',').count();
-    if semis >= 1 && semis >= commas {
+    let tabs = header.matches('\t').count();
+    if tabs > 0 && tabs >= semis && tabs >= commas {
+        Some('\t')
+    } else if semis >= 1 && semis >= commas {
         Some(';')
     } else if commas >= 1 {
         Some(',')
@@ -200,22 +203,37 @@ fn detect_delimiter(header: &str) -> Option<char> {
     }
 }
 
-fn cell_span(line: &str, delimiter: char, column: usize) -> Option<(usize, usize)> {
+fn split_delimited(line: &str, delimiter: char) -> Vec<&str> {
+    delimited_spans(line, delimiter)
+        .into_iter()
+        .map(|(start, end)| line[start..end].trim())
+        .collect()
+}
+
+fn delimited_spans(line: &str, delimiter: char) -> Vec<(usize, usize)> {
+    let mut spans = Vec::new();
     let mut start = 0usize;
-    let mut index = 0usize;
-    for (idx, ch) in line.char_indices() {
-        if ch == delimiter {
-            if index == column {
-                return trim_cell_span(line, start, idx);
+    let mut in_quotes = false;
+    let mut chars = line.char_indices().peekable();
+    while let Some((idx, ch)) = chars.next() {
+        if ch == '"' {
+            if in_quotes && chars.peek().is_some_and(|(_, next)| *next == '"') {
+                chars.next();
+            } else {
+                in_quotes = !in_quotes;
             }
+        } else if ch == delimiter && !in_quotes {
+            spans.push((start, idx));
             start = idx + ch.len_utf8();
-            index += 1;
         }
     }
-    if index == column {
-        return trim_cell_span(line, start, line.len());
-    }
-    None
+    spans.push((start, line.len()));
+    spans
+}
+
+fn cell_span(line: &str, delimiter: char, column: usize) -> Option<(usize, usize)> {
+    let (start, end) = delimited_spans(line, delimiter).into_iter().nth(column)?;
+    trim_cell_span(line, start, end)
 }
 
 fn trim_cell_span(line: &str, start: usize, end: usize) -> Option<(usize, usize)> {
@@ -344,6 +362,25 @@ Id;Naam;Geboortedatum;Adres;Telefoonnummer;Salaris
         assert!(!out.contains(";4200"));
         assert!(out.contains("[PERSON]"));
         assert!(out.contains("[AMOUNT]"));
+    }
+
+    #[test]
+    fn redacts_comma_csv_quoted_address_and_salaris() {
+        let src = "\
+Id,Naam,Geboortedatum,Adres,Telefoonnummer,Salaris
+1,Jan de Vries,1984-05-12,\"Hoofdstraat 45, Groningen\",06-12345678,3450
+2,Anja Bakker,1991-11-23,\"Kerkplein 2, Utrecht\",06-87654321,2900
+3,Mohammed El Amin,1978-02-05,\"Stationstraat 120, Rotterdam\",06-11223344,4200";
+        let out = redact(src);
+        assert!(out.lines().next().unwrap().contains("Salaris"));
+        assert!(!out.contains("Jan de Vries"));
+        assert!(!out.contains("Hoofdstraat"));
+        assert!(!out.contains("3450"));
+        assert!(!out.contains("2900"));
+        assert!(!out.contains("4200"));
+        assert!(out.contains("[PERSON]"));
+        assert!(out.contains("[AMOUNT]"));
+        assert!(out.contains("[LOCATION]"));
     }
 
     #[test]

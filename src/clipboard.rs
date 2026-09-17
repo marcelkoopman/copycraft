@@ -141,6 +141,8 @@ mod tests {
         assert_eq!(super::menu_mark("https://example.com/x"), "://");
         assert_eq!(super::menu_mark("fn main() {}"), "fn");
         assert_eq!(super::menu_mark("plain"), "Aa");
+        assert_eq!(super::menu_mark("name,age\nalice,30\nbob,40"), "csv");
+        assert_eq!(super::menu_mark("name\tage\nalice\t30\nbob\t40"), "tsv");
     }
 
     #[test]

@@ -10,6 +10,24 @@ pub fn try_csv_text(text: &str) -> Option<String> {
     parse(text).and_then(write_csv)
 }
 
+pub fn looks_like_csv(text: &str) -> bool {
+    matches!(delimited_separator(text), Some(b',') | Some(b';'))
+}
+
+pub fn looks_like_tsv(text: &str) -> bool {
+    delimited_separator(text) == Some(b'\t')
+}
+
+fn delimited_separator(text: &str) -> Option<u8> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let separator = detect_separator(trimmed)?;
+    try_csv(trimmed)?;
+    Some(separator)
+}
+
 fn parse(text: &str) -> Option<DataFrame> {
     let trimmed = text.trim();
     if trimmed.is_empty() {

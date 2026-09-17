@@ -9,6 +9,8 @@ pub enum FormatKind {
     Java,
     Url,
     Xml,
+    Csv,
+    Tsv,
     Dataframe,
     Text,
     Plain,
@@ -23,6 +25,8 @@ impl FormatKind {
             Self::Java => "Jv",
             Self::Url => "://",
             Self::Xml => "</>",
+            Self::Csv => "csv",
+            Self::Tsv => "tsv",
             Self::Dataframe => "DF",
             Self::Text => "¶",
             Self::Plain => "Aa",
@@ -36,6 +40,8 @@ impl FormatKind {
             Self::Rust => "Formatted Rust",
             Self::Java => "Formatted Java",
             Self::Xml => "Formatted XML",
+            Self::Csv => "CSV",
+            Self::Tsv => "TSV",
             Self::Dataframe => "Dataframe",
             _ => "Content",
         }
@@ -49,6 +55,8 @@ impl FormatKind {
             Self::Java => "java",
             Self::Url => "txt",
             Self::Xml => "xml",
+            Self::Csv => "csv",
+            Self::Tsv => "tsv",
             Self::Dataframe => "csv",
             Self::Text | Self::Plain => "txt",
         }
@@ -66,6 +74,8 @@ impl FormatKind {
             Self::Java => Some([231, 111, 0, 255]),
             Self::Url => Some([90, 200, 250, 255]),
             Self::Xml => Some([52, 199, 89, 255]),
+            Self::Csv => Some([100, 210, 255, 255]),
+            Self::Tsv => Some([64, 186, 232, 255]),
             Self::Dataframe => Some([100, 210, 255, 255]),
             Self::Text | Self::Plain => None,
         }
@@ -75,6 +85,12 @@ impl FormatKind {
 pub fn detect(text: &str) -> FormatKind {
     if crate::clipboard::try_format_json(text).is_some() {
         return FormatKind::Json;
+    }
+    if crate::dataframe::looks_like_tsv(text) {
+        return FormatKind::Tsv;
+    }
+    if crate::dataframe::looks_like_csv(text) {
+        return FormatKind::Csv;
     }
     if crate::transform::looks_like_yaml(text) {
         return FormatKind::Yaml;
@@ -110,9 +126,12 @@ pub fn format_text(text: &str) -> String {
         FormatKind::Rust => format_rust(text),
         FormatKind::Java => indent_braces(text),
         FormatKind::Xml => pretty_xml(text),
-        FormatKind::Url | FormatKind::Dataframe | FormatKind::Text | FormatKind::Plain => {
-            text.to_string()
-        }
+        FormatKind::Url
+        | FormatKind::Csv
+        | FormatKind::Tsv
+        | FormatKind::Dataframe
+        | FormatKind::Text
+        | FormatKind::Plain => text.to_string(),
     }
 }
 
@@ -445,6 +464,8 @@ mod tests {
         assert_eq!(Java.menu_symbol(), "Jv");
         assert_eq!(Url.menu_symbol(), "://");
         assert_eq!(Xml.menu_symbol(), "</>");
+        assert_eq!(Csv.menu_symbol(), "csv");
+        assert_eq!(Tsv.menu_symbol(), "tsv");
         assert_eq!(Dataframe.menu_symbol(), "DF");
         assert_eq!(Text.menu_symbol(), "¶");
         assert_eq!(Plain.menu_symbol(), "Aa");
@@ -457,8 +478,12 @@ mod tests {
         assert_eq!(FormatKind::Rust.suggested_extension(), "rs");
         assert_eq!(FormatKind::Java.suggested_extension(), "java");
         assert_eq!(FormatKind::Xml.suggested_extension(), "xml");
+        assert_eq!(FormatKind::Csv.suggested_extension(), "csv");
+        assert_eq!(FormatKind::Tsv.suggested_extension(), "tsv");
         assert_eq!(FormatKind::Dataframe.suggested_extension(), "csv");
         assert_eq!(FormatKind::Plain.suggested_extension(), "txt");
+        assert_eq!(FormatKind::Csv.suggested_filename(), "clipboard.csv");
+        assert_eq!(FormatKind::Tsv.suggested_filename(), "clipboard.tsv");
         assert_eq!(FormatKind::Dataframe.suggested_filename(), "clipboard.csv");
     }
 
@@ -490,6 +515,29 @@ mod tests {
     fn detects_xml() {
         assert_eq!(detect("<root><item/></root>"), FormatKind::Xml);
         assert_eq!(detect("<?xml version=\"1.0\"?><a></a>"), FormatKind::Xml);
+    }
+
+    #[test]
+    fn detects_csv_and_tsv() {
+        assert_eq!(detect("name,age\nalice,30\nbob,40"), FormatKind::Csv);
+        assert_eq!(detect("name\tage\nalice\t30\nbob\t40"), FormatKind::Tsv);
+        assert_eq!(
+            detect("Id;Naam;Salaris\n1;Jan;3450\n2;Anja;2900"),
+            FormatKind::Csv
+        );
+        assert_eq!(
+            detect(
+                "Id,Naam,Geboortedatum,Adres,Telefoonnummer,Salaris\n\
+1,Jan de Vries,1984-05-12,\"Hoofdstraat 45, Groningen\",06-12345678,3450\n\
+2,Anja Bakker,1991-11-23,\"Kerkplein 2, Utrecht\",06-87654321,2900"
+            ),
+            FormatKind::Csv
+        );
+        assert_eq!(detect("just a sentence"), FormatKind::Plain);
+        assert_eq!(detect("hello\nworld"), FormatKind::Text);
+        assert_eq!(FormatKind::Csv.preview_heading(), "CSV");
+        assert_eq!(FormatKind::Tsv.preview_heading(), "TSV");
+        assert_eq!(FormatKind::Dataframe.preview_heading(), "Dataframe");
     }
 
     #[test]
