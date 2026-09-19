@@ -24,6 +24,7 @@ use crate::decode;
 use crate::format::{self, FormatKind};
 use crate::macos_preview_text::{configure_scrolling_text, editor_font, set_body};
 use crate::redact;
+use crate::settings;
 use crate::toolbar_visibility;
 
 #[derive(Clone, Copy, PartialEq, Eq)]

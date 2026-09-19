@@ -46,10 +46,15 @@ pub fn shows_convert(source: &str) -> bool {
     crate::convert::try_convert(source).is_some()
 }
 
+pub fn opens_in_format_mode(auto_format: bool, source: &str) -> bool {
+    auto_format && shows_format(source)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        shows_compress, shows_convert, shows_dataframe, shows_decode, shows_format, shows_redact,
+        opens_in_format_mode, shows_compress, shows_convert, shows_dataframe, shows_decode,
+        shows_format, shows_redact,
     };
     use crate::format::FormatKind;
 
@@ -170,6 +175,15 @@ mod tests {
         assert!(shows_convert(
             "<root><person><name>Jan</name><age>30</age></person><person><name>Anja</name><age>40</age></person></root>"
         ));
+    }
+
+    #[test]
+    fn preview_stays_original_when_auto_format_is_off() {
+        let rust = "fn main(){let x=1;}";
+        assert!(shows_format(rust));
+        assert!(!opens_in_format_mode(false, rust));
+        assert!(opens_in_format_mode(true, rust));
+        assert!(!opens_in_format_mode(true, "hello world"));
     }
 
     #[test]

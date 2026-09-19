@@ -92,11 +92,7 @@ impl App {
     }
 
     fn format_and_preview(&mut self) {
-        let Some(text) = self.current_text() else {
-            return;
-        };
-        let formatted = clipboard::formatted(&text);
-        self.open_preview(&formatted);
+        self.show_current();
     }
 
     fn clear_history(&mut self) {
