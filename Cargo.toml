@@ -1,13 +1,13 @@
 [package]
 name = "copycraft"
-version = "0.1.14"
+version = "0.1.15"
 edition = "2024"
 
 [package.metadata.bundle]
 name = "Copycraft"
 identifier = "com.github.marcelkoopman.copycraft"
 icon = ["assets/icon.icns"]
-version = "0.1.14"
+version = "0.1.15"
 category = "Utilities"
 short_description = "Clipboard transformer"
 long_description = "A macOS menubar app that transforms clipboard content into another format, for example JSON formatting."
