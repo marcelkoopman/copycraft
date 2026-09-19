@@ -20,6 +20,7 @@ use crate::clipboard::{self, ClipboardHistory, ClipboardView};
 use crate::format;
 use crate::icon;
 use crate::preview;
+use crate::settings;
 
 const REFRESH: Duration = Duration::from_millis(400);
 
@@ -51,6 +52,10 @@ impl ApplicationHandler for App {
                 "clear_clipboard" => self.clear_clipboard(),
                 "current" => self.show_current(),
                 "format_preview" => self.format_and_preview(),
+                "auto_format" => {
+                    settings::set_auto_format_enabled(!settings::auto_format_enabled());
+                    self.rebuild_menu(true);
+                }
                 id if id.starts_with("hist_") => {
                     if let Ok(index) = id.trim_start_matches("hist_").parse::<usize>() {
                         self.show_history(index);
@@ -117,6 +122,9 @@ impl App {
     }
 
     fn auto_format(&mut self) {
+        if !settings::auto_format_enabled() {
+            return;
+        }
         let Some(text) = self.current_text() else {
             return;
         };
@@ -241,6 +249,13 @@ impl App {
             "format_preview",
             "Format & preview    ⌃⌥⌘F",
             true,
+            None,
+        ));
+        let _ = menu.append(&CheckMenuItem::with_id(
+            "auto_format",
+            "Auto-format clipboard",
+            true,
+            settings::auto_format_enabled(),
             None,
         ));
         let _ = menu.append(&appearance_menu());

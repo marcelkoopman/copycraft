@@ -144,6 +144,14 @@ Id,Naam,Geboortedatum,Adres,Telefoonnummer,Salaris
     }
 
     #[test]
+    fn exports_csv_as_json_rows() {
+        let out = super::try_json_text("name,age\nalice,30\nbob,40").expect("json");
+        assert!(out.contains("alice"));
+        assert!(out.contains("name"));
+        assert!(out.trim_start().starts_with('['));
+    }
+
+    #[test]
     fn exports_semicolon_csv() {
         let src = "\
 Id;Naam;Salaris

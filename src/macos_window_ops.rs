@@ -71,6 +71,12 @@ fn paint_mode_buttons() {
         mode == ViewMode::Format,
     );
     paint_mode_button(
+        &CONVERT_BUTTON,
+        "Convert",
+        convert_flash_color(),
+        mode == ViewMode::Convert,
+    );
+    paint_mode_button(
         &DECODE_BUTTON,
         "Decode",
         decode_flash_color(),
@@ -121,6 +127,7 @@ const TOOLBAR_H: f64 = 36.0;
 fn apply_toolbar_for_kind(kind: FormatKind) {
     let source = SOURCE_TEXT.with(|slot| slot.borrow().clone());
     let show_format = toolbar_visibility::shows_format(&source);
+    let show_convert = toolbar_visibility::shows_convert(&source);
     let show_redact = toolbar_visibility::shows_redact(kind, &source);
     let show_df =
         toolbar_visibility::shows_dataframe(kind) || dataframe::try_format(&source).is_some();
@@ -135,7 +142,15 @@ fn apply_toolbar_for_kind(kind: FormatKind) {
             }
         });
     }
+    if !show_convert {
+        VIEW_MODE.with(|slot| {
+            if *slot.borrow() == ViewMode::Convert {
+                slot.replace(ViewMode::Original);
+            }
+        });
+    }
     set_button_hidden(&FORMAT_BUTTON, !show_format);
+    set_button_hidden(&CONVERT_BUTTON, !show_convert);
     set_button_hidden(&REDACT_BUTTON, !show_redact);
     set_button_hidden(&DATAFRAME_BUTTON, !show_df);
     set_button_hidden(&COMPRESS_BUTTON, !show_compress);
@@ -147,6 +162,10 @@ fn apply_toolbar_for_kind(kind: FormatKind) {
     x += TOOLBAR_BTN_W + TOOLBAR_GAP;
     if show_format {
         place_button(&FORMAT_BUTTON, x, y);
+        x += TOOLBAR_BTN_W + TOOLBAR_GAP;
+    }
+    if show_convert {
+        place_button(&CONVERT_BUTTON, x, y);
         x += TOOLBAR_BTN_W + TOOLBAR_GAP;
     }
     if show_decode {

@@ -6,6 +6,7 @@ thread_local! {
     static COPY_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static ORIGINAL_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static FORMAT_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
+    static CONVERT_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static DECODE_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static COMPRESS_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static REDACT_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
@@ -51,6 +52,23 @@ define_class!(
             let body = SOURCE_TEXT.with(|src| clipboard::formatted(&src.borrow()));
             apply_preview(&body);
             select_mode(ViewMode::Format);
+        }
+
+        #[unsafe(method(convertClicked:))]
+        fn convert_clicked(&self, _sender: Option<&AnyObject>) {
+            let body = SOURCE_TEXT.with(|src| convert::try_convert(&src.borrow()));
+            let Some(body) = body else {
+                flash_button(&CONVERT_BUTTON, "Failed", "Convert", error_flash_color(), true);
+                reset_later(self, sel!(resetConvertLabel:));
+                return;
+            };
+            apply_preview(&clipboard::formatted(&body));
+            select_mode(ViewMode::Convert);
+        }
+
+        #[unsafe(method(resetConvertLabel:))]
+        fn reset_convert_label(&self, _sender: Option<&AnyObject>) {
+            paint_mode_buttons();
         }
 
         #[unsafe(method(decodeClicked:))]
@@ -172,6 +190,9 @@ fn copy_flash_color() -> Retained<NSColor> {
 }
 fn format_flash_color() -> Retained<NSColor> {
     NSColor::colorWithCalibratedRed_green_blue_alpha(0.96, 0.77, 0.26, 1.0)
+}
+fn convert_flash_color() -> Retained<NSColor> {
+    NSColor::colorWithCalibratedRed_green_blue_alpha(1.0, 0.55, 0.70, 1.0)
 }
 fn decode_flash_color() -> Retained<NSColor> {
     NSColor::colorWithCalibratedRed_green_blue_alpha(0.62, 0.55, 1.0, 1.0)

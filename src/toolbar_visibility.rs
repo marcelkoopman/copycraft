@@ -42,9 +42,15 @@ pub fn shows_decode(kind: FormatKind) -> bool {
     matches!(kind, FormatKind::Plain | FormatKind::Text | FormatKind::Url)
 }
 
+pub fn shows_convert(source: &str) -> bool {
+    crate::convert::try_convert(source).is_some()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{shows_compress, shows_dataframe, shows_decode, shows_format, shows_redact};
+    use super::{
+        shows_compress, shows_convert, shows_dataframe, shows_decode, shows_format, shows_redact,
+    };
     use crate::format::FormatKind;
 
     #[test]
@@ -149,5 +155,29 @@ mod tests {
     fn format_shows_when_pretty_print_changes_text() {
         assert!(shows_format(r#"{"name":"copycraft"}"#));
         assert!(shows_format("<root><item/></root>"));
+    }
+
+    #[test]
+    fn convert_shows_for_json_yaml_and_tables() {
+        assert!(shows_convert(r#"{"name":"copycraft"}"#));
+        let pretty = "{\n  \"name\": \"copycraft\"\n}";
+        assert!(shows_convert(pretty));
+        assert!(!shows_format(pretty));
+        assert!(shows_convert("name: copycraft\nitems:\n  - one\n"));
+        assert!(shows_convert("name: copycraft\ncount: 2\n"));
+        assert!(shows_convert("name,age\nalice,30\nbob,40"));
+        assert!(shows_convert("name\tage\nalice\t30\nbob\t40"));
+        assert!(shows_convert(
+            "<root><person><name>Jan</name><age>30</age></person><person><name>Anja</name><age>40</age></person></root>"
+        ));
+    }
+
+    #[test]
+    fn convert_hides_for_code_prose_and_non_table_xml() {
+        assert!(!shows_convert("hello world"));
+        assert!(!shows_convert("line one\nline two"));
+        assert!(!shows_convert("https://example.com/path"));
+        assert!(!shows_convert("fn main() {}"));
+        assert!(!shows_convert("<root><item/></root>"));
     }
 }

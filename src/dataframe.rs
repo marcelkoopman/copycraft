@@ -10,6 +10,10 @@ pub fn try_csv_text(text: &str) -> Option<String> {
     parse(text).and_then(write_csv)
 }
 
+pub fn try_json_text(text: &str) -> Option<String> {
+    parse(text).and_then(write_json)
+}
+
 pub fn looks_like_csv(text: &str) -> bool {
     matches!(delimited_separator(text), Some(b',') | Some(b';'))
 }
@@ -48,6 +52,18 @@ fn write_csv(mut df: DataFrame) -> Option<String> {
         .finish(&mut df)
         .ok()?;
     String::from_utf8(buf).ok()
+}
+
+fn write_json(mut df: DataFrame) -> Option<String> {
+    if df.width() == 0 || df.height() == 0 {
+        return None;
+    }
+    let mut buf = Vec::new();
+    JsonWriter::new(&mut buf)
+        .with_json_format(JsonFormat::Json)
+        .finish(&mut df)
+        .ok()?;
+    crate::clipboard::try_format_json(&String::from_utf8(buf).ok()?)
 }
 
 fn render(df: DataFrame) -> Option<String> {

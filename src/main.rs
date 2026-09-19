@@ -1,6 +1,7 @@
 mod appearance;
 mod clipboard;
 mod compress;
+mod convert;
 mod dataframe;
 mod decode;
 mod format;
@@ -9,6 +10,7 @@ mod icon;
 mod menubar;
 mod preview;
 mod redact;
+mod settings;
 mod toolbar_visibility;
 mod transform;
 
