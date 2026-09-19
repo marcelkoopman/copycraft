@@ -1,18 +1,12 @@
 pub fn show(source: &str, kind: FormatKind) -> Result<(), String> {
     let mtm = MainThreadMarker::new().ok_or("preview must run on the main thread")?;
     let source = source.to_string();
-    let format_on_open =
-        toolbar_visibility::opens_in_format_mode(settings::auto_format_enabled(), &source);
-    let (body, preview_kind, mode) = if format_on_open {
-        let body = clipboard::formatted(&source);
-        (body.clone(), format::detect(&body), ViewMode::Format)
-    } else {
-        (source.clone(), kind, ViewMode::Original)
-    };
-    let title = window_title(preview_kind, mode);
+    let body = source.clone();
+    let mode = ViewMode::Original;
+    let title = window_title(kind, mode);
     SOURCE_TEXT.with(|slot| slot.replace(source));
     PREVIEW_TEXT.with(|slot| slot.replace(body.clone()));
-    PREVIEW_KIND.with(|slot| slot.replace(preview_kind));
+    PREVIEW_KIND.with(|slot| slot.replace(kind));
     SOURCE_KIND.with(|slot| slot.replace(kind));
     VIEW_MODE.with(|slot| slot.replace(mode));
 
@@ -32,7 +26,7 @@ pub fn show(source: &str, kind: FormatKind) -> Result<(), String> {
         });
         TEXT.with(|slot| {
             if let Some(text) = slot.borrow().as_ref() {
-                set_body(text, &body, preview_kind);
+                set_body(text, &body, kind);
             }
         });
         SCROLL.with(|slot| {
@@ -189,7 +183,7 @@ pub fn show(source: &str, kind: FormatKind) -> Result<(), String> {
     text.setTextContainerInset(NSSize::new(10.0, 12.0));
     text.setFont(Some(&editor_font()));
     configure_scrolling_text(&text);
-    set_body(&text, &body, preview_kind);
+    set_body(&text, &body, kind);
     scroll.setDocumentView(Some(&text));
 
     frosted.addSubview(&scroll);

@@ -24,7 +24,6 @@ use crate::decode;
 use crate::format::{self, FormatKind};
 use crate::macos_preview_text::{configure_scrolling_text, editor_font, set_body};
 use crate::redact;
-use crate::settings;
 use crate::toolbar_visibility;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -40,11 +39,3 @@ enum ViewMode {
 
 include!("macos_window_state.rs");
 include!("macos_window_show.rs");
-
-pub fn is_visible() -> bool {
-    WINDOW.with(|slot| {
-        slot.borrow()
-            .as_ref()
-            .is_some_and(|window| window.isVisible())
-    })
-}

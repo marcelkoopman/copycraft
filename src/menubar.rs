@@ -20,7 +20,6 @@ use crate::clipboard::{self, ClipboardHistory, ClipboardView};
 use crate::format;
 use crate::icon;
 use crate::preview;
-use crate::settings;
 
 const REFRESH: Duration = Duration::from_millis(400);
 
@@ -33,7 +32,6 @@ struct App {
     skip_record: Option<String>,
     _hotkeys: GlobalHotKeyManager,
     format_hotkey_id: u32,
-    auto_format_item: Option<CheckMenuItem>,
 }
 
 impl ApplicationHandler for App {
@@ -53,7 +51,6 @@ impl ApplicationHandler for App {
                 "clear_clipboard" => self.clear_clipboard(),
                 "current" => self.show_current(),
                 "format_preview" => self.format_and_preview(),
-                "auto_format" => self.on_auto_format_clicked(),
                 id if id.starts_with("hist_") => {
                     if let Ok(index) = id.trim_start_matches("hist_").parse::<usize>() {
                         self.show_history(index);
@@ -115,41 +112,6 @@ impl App {
         self.skip_record.as_deref() != Some(text)
     }
 
-    fn on_auto_format_clicked(&mut self) {
-        let enabled = self
-            .auto_format_item
-            .as_ref()
-            .map(CheckMenuItem::is_checked)
-            .unwrap_or_else(|| !settings::auto_format_enabled());
-        settings::set_auto_format_enabled(enabled);
-        self.rebuild_menu(true);
-        if preview::is_visible() {
-            self.show_current();
-        }
-    }
-
-    fn auto_format(&mut self) {
-        if !settings::auto_format_enabled() {
-            return;
-        }
-        let Some(text) = self.current_text() else {
-            return;
-        };
-        let formatted = clipboard::formatted(&text);
-        if formatted == text {
-            return;
-        }
-        if let Err(e) = clipboard::write_clipboard(&formatted) {
-            eprintln!("auto-format write failed: {e}");
-            return;
-        }
-        if self.should_record(&formatted) {
-            self.history.record(formatted);
-        } else {
-            self.skip_record = Some(formatted);
-        }
-    }
-
     fn show_current(&mut self) {
         if let Some(text) = self.current_text() {
             self.open_preview(&text);
@@ -171,7 +133,6 @@ impl App {
     }
 
     fn rebuild_menu(&mut self, force: bool) {
-        self.auto_format();
         let view = ClipboardView::from_os();
         if let Some(text) = view.text()
             && self.should_record(text)
@@ -258,15 +219,6 @@ impl App {
             true,
             None,
         ));
-        let auto_format = CheckMenuItem::with_id(
-            "auto_format",
-            "Auto-format clipboard",
-            true,
-            settings::auto_format_enabled(),
-            None,
-        );
-        let _ = menu.append(&auto_format);
-        self.auto_format_item = Some(auto_format);
         let _ = menu.append(&appearance_menu());
         let _ = menu.append(&PredefinedMenuItem::separator());
         let _ = menu.append(&IconMenuItem::with_id_and_native_icon(
@@ -398,7 +350,6 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         skip_record: None,
         _hotkeys: hotkeys,
         format_hotkey_id,
-        auto_format_item: None,
     };
     app.rebuild_menu(true);
 

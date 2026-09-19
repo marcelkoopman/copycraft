@@ -10,7 +10,6 @@ mod icon;
 mod menubar;
 mod preview;
 mod redact;
-mod settings;
 mod toolbar_visibility;
 mod transform;
 
