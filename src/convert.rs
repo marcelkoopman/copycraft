@@ -129,6 +129,7 @@ Id,Naam,Adres
         assert!(try_convert("fn main() {}").is_none());
         assert!(try_convert("https://example.com/x").is_none());
         assert!(try_convert("<root><item/></root>").is_none());
+        assert!(try_convert("mod appearance;\nmod clipboard;\nmod compress;").is_none());
     }
 
     #[test]

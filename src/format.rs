@@ -86,6 +86,12 @@ pub fn detect(text: &str) -> FormatKind {
     if crate::clipboard::try_format_json(text).is_some() {
         return FormatKind::Json;
     }
+    if looks_like_rust(text) {
+        return FormatKind::Rust;
+    }
+    if looks_like_java(text) {
+        return FormatKind::Java;
+    }
     if crate::dataframe::looks_like_tsv(text) {
         return FormatKind::Tsv;
     }
@@ -101,12 +107,6 @@ pub fn detect(text: &str) -> FormatKind {
     }
     if looks_like_xml(text) {
         return FormatKind::Xml;
-    }
-    if looks_like_rust(text) {
-        return FormatKind::Rust;
-    }
-    if looks_like_java(text) {
-        return FormatKind::Java;
     }
     if text.contains('\n') {
         FormatKind::Text
@@ -497,6 +497,41 @@ mod tests {
     fn detects_rust() {
         let src = "fn main() { let x = 1; }";
         assert_eq!(detect(src), FormatKind::Rust);
+    }
+
+    #[test]
+    fn rust_module_list_is_not_csv() {
+        let src = "\
+mod appearance;
+mod clipboard;
+mod compress;
+mod convert;
+mod dataframe;
+mod decode;
+mod format;
+mod highlight;
+mod icon;
+mod menubar;
+mod preview;
+mod redact;
+mod settings;
+mod toolbar_visibility;
+mod transform;
+
+#[cfg(target_os = \"macos\")]
+mod macos_preview_text;
+#[cfg(target_os = \"macos\")]
+mod macos_window;
+
+fn main() {
+    if let Err(e) = menubar::run() {
+        eprintln!(\"copycraft failed: {e}\");
+        std::process::exit(1);
+    }
+}
+";
+        assert_eq!(detect(src), FormatKind::Rust);
+        assert!(!crate::dataframe::looks_like_csv(src));
     }
 
     #[test]

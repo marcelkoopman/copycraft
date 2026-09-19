@@ -178,6 +178,9 @@ mod tests {
         assert!(!shows_convert("line one\nline two"));
         assert!(!shows_convert("https://example.com/path"));
         assert!(!shows_convert("fn main() {}"));
+        assert!(!shows_convert(
+            "mod appearance;\nmod clipboard;\nfn main() {}"
+        ));
         assert!(!shows_convert("<root><item/></root>"));
     }
 }
