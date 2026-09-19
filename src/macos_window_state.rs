@@ -43,15 +43,15 @@ define_class!(
         #[unsafe(method(originalClicked:))]
         fn original_clicked(&self, _sender: Option<&AnyObject>) {
             let body = SOURCE_TEXT.with(|src| src.borrow().clone());
-            apply_preview(&body);
             select_mode(ViewMode::Original);
+            apply_preview(&body);
         }
 
         #[unsafe(method(formatClicked:))]
         fn format_clicked(&self, _sender: Option<&AnyObject>) {
             let body = SOURCE_TEXT.with(|src| clipboard::formatted(&src.borrow()));
-            apply_preview(&body);
             select_mode(ViewMode::Format);
+            apply_preview(&body);
         }
 
         #[unsafe(method(convertClicked:))]
@@ -62,8 +62,8 @@ define_class!(
                 reset_later(self, sel!(resetConvertLabel:));
                 return;
             };
-            apply_preview(&clipboard::formatted(&body));
             select_mode(ViewMode::Convert);
+            apply_preview(&clipboard::formatted(&body));
         }
 
         #[unsafe(method(resetConvertLabel:))]
@@ -79,8 +79,8 @@ define_class!(
                 reset_later(self, sel!(resetDecodeLabel:));
                 return;
             };
-            apply_preview(&clipboard::formatted(&body));
             select_mode(ViewMode::Decode);
+            apply_preview(&clipboard::formatted(&body));
         }
 
         #[unsafe(method(resetDecodeLabel:))]
@@ -96,8 +96,8 @@ define_class!(
                 reset_later(self, sel!(resetCompressLabel:));
                 return;
             };
-            apply_preview(&body);
             select_mode(ViewMode::Compress);
+            apply_preview(&body);
         }
 
         #[unsafe(method(resetCompressLabel:))]
@@ -108,8 +108,8 @@ define_class!(
         #[unsafe(method(redactClicked:))]
         fn redact_clicked(&self, _sender: Option<&AnyObject>) {
             let body = SOURCE_TEXT.with(|src| redact::redact(&src.borrow()));
-            apply_preview(&body);
             select_mode(ViewMode::Redact);
+            apply_preview(&body);
         }
 
         #[unsafe(method(dataframeClicked:))]
@@ -120,8 +120,8 @@ define_class!(
                 reset_later(self, sel!(resetDataframeLabel:));
                 return;
             };
-            apply_preview_with_kind(&body, FormatKind::Dataframe);
             select_mode(ViewMode::Dataframe);
+            apply_preview_with_kind(&body, FormatKind::Dataframe);
         }
 
         #[unsafe(method(resetDataframeLabel:))]

@@ -2,12 +2,21 @@ fn apply_preview(body: &str) {
     apply_preview_with_kind(body, format::detect(body));
 }
 
+fn window_title(kind: FormatKind, mode: ViewMode) -> &'static str {
+    if mode == ViewMode::Format {
+        kind.preview_heading()
+    } else {
+        kind.source_heading()
+    }
+}
+
 fn apply_preview_with_kind(body: &str, kind: FormatKind) {
     PREVIEW_KIND.with(|slot| slot.replace(kind));
     PREVIEW_TEXT.with(|slot| slot.replace(body.to_string()));
+    let mode = VIEW_MODE.with(|slot| *slot.borrow());
     WINDOW.with(|slot| {
         if let Some(window) = slot.borrow().as_ref() {
-            window.setTitle(&NSString::from_str(kind.preview_heading()));
+            window.setTitle(&NSString::from_str(window_title(kind, mode)));
         }
     });
     fade_scroll(0.0, 0.16);
@@ -149,6 +158,13 @@ fn apply_toolbar_for_kind(kind: FormatKind) {
             }
         });
     }
+    let show_original = show_format
+        || show_convert
+        || show_decode
+        || show_compress
+        || show_redact
+        || show_df;
+    set_button_hidden(&ORIGINAL_BUTTON, !show_original);
     set_button_hidden(&FORMAT_BUTTON, !show_format);
     set_button_hidden(&CONVERT_BUTTON, !show_convert);
     set_button_hidden(&REDACT_BUTTON, !show_redact);
@@ -158,8 +174,10 @@ fn apply_toolbar_for_kind(kind: FormatKind) {
 
     let y = (TOOLBAR_H - TOOLBAR_BTN_H) / 2.0;
     let mut x = TOOLBAR_PAD;
-    place_button(&ORIGINAL_BUTTON, x, y);
-    x += TOOLBAR_BTN_W + TOOLBAR_GAP;
+    if show_original {
+        place_button(&ORIGINAL_BUTTON, x, y);
+        x += TOOLBAR_BTN_W + TOOLBAR_GAP;
+    }
     if show_format {
         place_button(&FORMAT_BUTTON, x, y);
         x += TOOLBAR_BTN_W + TOOLBAR_GAP;

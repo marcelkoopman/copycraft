@@ -33,6 +33,21 @@ impl FormatKind {
         }
     }
 
+    pub fn source_heading(self) -> &'static str {
+        match self {
+            Self::Json => "JSON",
+            Self::Yaml => "YAML",
+            Self::Rust => "Rust",
+            Self::Java => "Java",
+            Self::Url => "URL",
+            Self::Xml => "XML",
+            Self::Csv => "CSV",
+            Self::Tsv => "TSV",
+            Self::Dataframe => "Dataframe",
+            Self::Text | Self::Plain => "Content",
+        }
+    }
+
     pub fn preview_heading(self) -> &'static str {
         match self {
             Self::Json => "Formatted JSON",
@@ -573,6 +588,10 @@ fn main() {
         assert_eq!(FormatKind::Csv.preview_heading(), "CSV");
         assert_eq!(FormatKind::Tsv.preview_heading(), "TSV");
         assert_eq!(FormatKind::Dataframe.preview_heading(), "Dataframe");
+        assert_eq!(FormatKind::Rust.source_heading(), "Rust");
+        assert_eq!(FormatKind::Rust.preview_heading(), "Formatted Rust");
+        assert_eq!(FormatKind::Json.source_heading(), "JSON");
+        assert_eq!(FormatKind::Java.source_heading(), "Java");
     }
 
     #[test]

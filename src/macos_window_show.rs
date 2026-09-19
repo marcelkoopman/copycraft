@@ -9,7 +9,7 @@ pub fn show(source: &str, kind: FormatKind) -> Result<(), String> {
     } else {
         (source.clone(), kind, ViewMode::Original)
     };
-    let title = preview_kind.preview_heading();
+    let title = window_title(preview_kind, mode);
     SOURCE_TEXT.with(|slot| slot.replace(source));
     PREVIEW_TEXT.with(|slot| slot.replace(body.clone()));
     PREVIEW_KIND.with(|slot| slot.replace(preview_kind));
