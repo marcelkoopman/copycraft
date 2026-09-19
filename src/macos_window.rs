@@ -40,3 +40,11 @@ enum ViewMode {
 
 include!("macos_window_state.rs");
 include!("macos_window_show.rs");
+
+pub fn is_visible() -> bool {
+    WINDOW.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .is_some_and(|window| window.isVisible())
+    })
+}

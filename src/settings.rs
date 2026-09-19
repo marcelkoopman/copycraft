@@ -1,10 +1,20 @@
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 const DEFAULTS_KEY: &str = "CopycraftAutoFormat";
 
+static CACHED: OnceLock<AtomicBool> = OnceLock::new();
+
+fn cached() -> &'static AtomicBool {
+    CACHED.get_or_init(|| AtomicBool::new(load().unwrap_or(true)))
+}
+
 pub fn auto_format_enabled() -> bool {
-    load().unwrap_or(true)
+    cached().load(Ordering::Relaxed)
 }
 
 pub fn set_auto_format_enabled(enabled: bool) {
+    cached().store(enabled, Ordering::Relaxed);
     store(enabled);
 }
 
@@ -46,10 +56,15 @@ fn store(enabled: bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::auto_format_enabled;
+    use super::{auto_format_enabled, set_auto_format_enabled};
 
     #[test]
-    fn defaults_on_when_unset_or_readable() {
-        let _ = auto_format_enabled();
+    fn set_then_get_roundtrip() {
+        let previous = auto_format_enabled();
+        set_auto_format_enabled(false);
+        assert!(!auto_format_enabled());
+        set_auto_format_enabled(true);
+        assert!(auto_format_enabled());
+        set_auto_format_enabled(previous);
     }
 }

@@ -12,6 +12,17 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     }
 }
 
+pub fn is_visible() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        crate::macos_window::is_visible()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::show;
