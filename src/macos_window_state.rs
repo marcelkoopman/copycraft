@@ -6,6 +6,7 @@ thread_local! {
     static COPY_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static ORIGINAL_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static FORMAT_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
+    static CONVERT_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static DECODE_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static COMPRESS_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static REDACT_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
@@ -42,15 +43,32 @@ define_class!(
         #[unsafe(method(originalClicked:))]
         fn original_clicked(&self, _sender: Option<&AnyObject>) {
             let body = SOURCE_TEXT.with(|src| src.borrow().clone());
-            apply_preview(&body);
             select_mode(ViewMode::Original);
+            apply_preview(&body);
         }
 
         #[unsafe(method(formatClicked:))]
         fn format_clicked(&self, _sender: Option<&AnyObject>) {
             let body = SOURCE_TEXT.with(|src| clipboard::formatted(&src.borrow()));
-            apply_preview(&body);
             select_mode(ViewMode::Format);
+            apply_preview(&body);
+        }
+
+        #[unsafe(method(convertClicked:))]
+        fn convert_clicked(&self, _sender: Option<&AnyObject>) {
+            let body = SOURCE_TEXT.with(|src| convert::try_convert(&src.borrow()));
+            let Some(body) = body else {
+                flash_button(&CONVERT_BUTTON, "Failed", "Convert", error_flash_color(), true);
+                reset_later(self, sel!(resetConvertLabel:));
+                return;
+            };
+            select_mode(ViewMode::Convert);
+            apply_preview(&clipboard::formatted(&body));
+        }
+
+        #[unsafe(method(resetConvertLabel:))]
+        fn reset_convert_label(&self, _sender: Option<&AnyObject>) {
+            paint_mode_buttons();
         }
 
         #[unsafe(method(decodeClicked:))]
@@ -61,8 +79,8 @@ define_class!(
                 reset_later(self, sel!(resetDecodeLabel:));
                 return;
             };
-            apply_preview(&clipboard::formatted(&body));
             select_mode(ViewMode::Decode);
+            apply_preview(&clipboard::formatted(&body));
         }
 
         #[unsafe(method(resetDecodeLabel:))]
@@ -78,8 +96,8 @@ define_class!(
                 reset_later(self, sel!(resetCompressLabel:));
                 return;
             };
-            apply_preview(&body);
             select_mode(ViewMode::Compress);
+            apply_preview(&body);
         }
 
         #[unsafe(method(resetCompressLabel:))]
@@ -90,8 +108,8 @@ define_class!(
         #[unsafe(method(redactClicked:))]
         fn redact_clicked(&self, _sender: Option<&AnyObject>) {
             let body = SOURCE_TEXT.with(|src| redact::redact(&src.borrow()));
-            apply_preview(&body);
             select_mode(ViewMode::Redact);
+            apply_preview(&body);
         }
 
         #[unsafe(method(dataframeClicked:))]
@@ -102,8 +120,8 @@ define_class!(
                 reset_later(self, sel!(resetDataframeLabel:));
                 return;
             };
-            apply_preview_with_kind(&body, FormatKind::Dataframe);
             select_mode(ViewMode::Dataframe);
+            apply_preview_with_kind(&body, FormatKind::Dataframe);
         }
 
         #[unsafe(method(resetDataframeLabel:))]
@@ -172,6 +190,9 @@ fn copy_flash_color() -> Retained<NSColor> {
 }
 fn format_flash_color() -> Retained<NSColor> {
     NSColor::colorWithCalibratedRed_green_blue_alpha(0.96, 0.77, 0.26, 1.0)
+}
+fn convert_flash_color() -> Retained<NSColor> {
+    NSColor::colorWithCalibratedRed_green_blue_alpha(1.0, 0.55, 0.70, 1.0)
 }
 fn decode_flash_color() -> Retained<NSColor> {
     NSColor::colorWithCalibratedRed_green_blue_alpha(0.62, 0.55, 1.0, 1.0)

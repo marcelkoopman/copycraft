@@ -1,6 +1,7 @@
 mod appearance;
 mod clipboard;
 mod compress;
+mod convert;
 mod dataframe;
 mod decode;
 mod format;

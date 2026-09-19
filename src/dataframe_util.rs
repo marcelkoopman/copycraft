@@ -25,34 +25,53 @@ fn looks_like_delimited_table(text: &str, separator: u8) -> bool {
         return false;
     }
     let width = delimited_field_count(lines[0], sep);
-    if width < 2 {
+    if width < 2 || nonempty_delimited_field_count(lines[0], sep) < 2 {
         return false;
     }
     let sample_len = lines.len().min(20);
-    let consistent = lines
+    let sample = &lines[..sample_len];
+    let consistent = sample
         .iter()
-        .take(20)
         .filter(|line| delimited_field_count(line, sep) == width)
         .count();
-    consistent * 2 >= sample_len && !looks_like_key_value_blob(text)
+    let populated = sample
+        .iter()
+        .filter(|line| nonempty_delimited_field_count(line, sep) >= 2)
+        .count();
+    consistent * 2 >= sample_len
+        && populated * 2 >= sample_len
+        && !looks_like_key_value_blob(text)
 }
 
 fn delimited_field_count(line: &str, sep: char) -> usize {
-    let mut fields = 1usize;
+    delimited_fields(line, sep).count()
+}
+
+fn nonempty_delimited_field_count(line: &str, sep: char) -> usize {
+    delimited_fields(line, sep)
+        .filter(|field| !field.trim().is_empty())
+        .count()
+}
+
+fn delimited_fields(line: &str, sep: char) -> impl Iterator<Item = &str> {
+    let mut fields = Vec::new();
+    let mut start = 0usize;
     let mut in_quotes = false;
-    let mut chars = line.chars().peekable();
-    while let Some(ch) = chars.next() {
+    let mut chars = line.char_indices().peekable();
+    while let Some((idx, ch)) = chars.next() {
         if ch == '"' {
-            if in_quotes && chars.peek() == Some(&'"') {
+            if in_quotes && chars.peek().is_some_and(|(_, next)| *next == '"') {
                 chars.next();
             } else {
                 in_quotes = !in_quotes;
             }
         } else if ch == sep && !in_quotes {
-            fields += 1;
+            fields.push(&line[start..idx]);
+            start = idx + ch.len_utf8();
         }
     }
-    fields
+    fields.push(&line[start..]);
+    fields.into_iter()
 }
 
 fn looks_like_key_value_blob(text: &str) -> bool {
@@ -78,6 +97,18 @@ fn looks_like_key_value_blob(text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::try_format;
+
+    #[test]
+    fn formats_semicolon_csv_with_trailing_delimiters() {
+        let src = "\
+Id;Naam;
+1;Jan;
+2;Anja;";
+        assert!(super::looks_like_csv(src));
+        let out = try_format(src).expect("df");
+        assert!(out.contains("Naam"));
+        assert!(out.contains("Jan"));
+    }
 
     #[test]
     fn formats_semicolon_csv() {
@@ -141,6 +172,25 @@ Id,Naam,Geboortedatum,Adres,Telefoonnummer,Salaris
     fn rejects_plain_text() {
         assert!(try_format("just a sentence about nothing").is_none());
         assert!(try_format("Naam: Jan de Vries\nSalaris: 3450").is_none());
+    }
+
+    #[test]
+    fn rejects_rust_module_statements() {
+        let src = "\
+mod appearance;
+mod clipboard;
+mod compress;
+mod dataframe;";
+        assert!(!super::looks_like_csv(src));
+        assert!(try_format(src).is_none());
+    }
+
+    #[test]
+    fn exports_csv_as_json_rows() {
+        let out = super::try_json_text("name,age\nalice,30\nbob,40").expect("json");
+        assert!(out.contains("alice"));
+        assert!(out.contains("name"));
+        assert!(out.trim_start().starts_with('['));
     }
 
     #[test]

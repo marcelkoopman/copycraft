@@ -87,11 +87,7 @@ impl App {
     }
 
     fn format_and_preview(&mut self) {
-        let Some(text) = self.current_text() else {
-            return;
-        };
-        let formatted = clipboard::formatted(&text);
-        self.open_preview(&formatted);
+        self.show_current();
     }
 
     fn clear_history(&mut self) {
@@ -116,25 +112,6 @@ impl App {
         self.skip_record.as_deref() != Some(text)
     }
 
-    fn auto_format(&mut self) {
-        let Some(text) = self.current_text() else {
-            return;
-        };
-        let formatted = clipboard::formatted(&text);
-        if formatted == text {
-            return;
-        }
-        if let Err(e) = clipboard::write_clipboard(&formatted) {
-            eprintln!("auto-format write failed: {e}");
-            return;
-        }
-        if self.should_record(&formatted) {
-            self.history.record(formatted);
-        } else {
-            self.skip_record = Some(formatted);
-        }
-    }
-
     fn show_current(&mut self) {
         if let Some(text) = self.current_text() {
             self.open_preview(&text);
@@ -156,7 +133,6 @@ impl App {
     }
 
     fn rebuild_menu(&mut self, force: bool) {
-        self.auto_format();
         let view = ClipboardView::from_os();
         if let Some(text) = view.text()
             && self.should_record(text)
@@ -260,6 +236,7 @@ impl App {
             None,
         ));
         let _ = menu.append(&PredefinedMenuItem::separator());
+        let _ = menu.append(&version_item());
         let _ = menu.append(&IconMenuItem::with_id_and_native_icon(
             "quit",
             "Quit",
@@ -271,6 +248,17 @@ impl App {
         let _ = self.tray.set_tooltip(Some("Copycraft"));
         self.tray.set_title(None::<&str>);
     }
+}
+
+fn version_label() -> String {
+    format!("Copycraft {}", env!("CARGO_PKG_VERSION"))
+}
+
+fn version_item() -> MenuItem {
+    let label = version_label();
+    let item = MenuItem::new(&label, false, None);
+    item.set_styled_text(vec![(label, TextStyle::Secondary)]);
+    item
 }
 
 fn appearance_menu() -> Submenu {
@@ -368,4 +356,17 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let event_loop = EventLoop::new()?;
     event_loop.run_app(&mut app)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::version_label;
+
+    #[test]
+    fn version_label_includes_package_version() {
+        assert_eq!(
+            version_label(),
+            format!("Copycraft {}", env!("CARGO_PKG_VERSION"))
+        );
+    }
 }

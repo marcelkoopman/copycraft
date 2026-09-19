@@ -18,6 +18,7 @@ use objc2_foundation::{
 
 use crate::clipboard;
 use crate::compress;
+use crate::convert;
 use crate::dataframe;
 use crate::decode;
 use crate::format::{self, FormatKind};
@@ -29,6 +30,7 @@ use crate::toolbar_visibility;
 enum ViewMode {
     Original,
     Format,
+    Convert,
     Decode,
     Compress,
     Redact,
