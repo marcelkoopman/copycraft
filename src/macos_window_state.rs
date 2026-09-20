@@ -3,6 +3,7 @@ thread_local! {
     static TARGET: RefCell<Option<Retained<PreviewTarget>>> = const { RefCell::new(None) };
     static TEXT: RefCell<Option<Retained<NSTextView>>> = const { RefCell::new(None) };
     static SCROLL: RefCell<Option<Retained<NSScrollView>>> = const { RefCell::new(None) };
+    static IMAGE_VIEW: RefCell<Option<Retained<NSImageView>>> = const { RefCell::new(None) };
     static COPY_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static ORIGINAL_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static FORMAT_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
@@ -11,8 +12,16 @@ thread_local! {
     static COMPRESS_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static REDACT_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static DATAFRAME_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
+    static INFO_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
+    static OCR_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
+    static QR_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static SAVE_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static SOURCE_TEXT: RefCell<String> = const { RefCell::new(String::new()) };
+    static SOURCE_IMAGE: RefCell<Option<ClipboardImage>> = const { RefCell::new(None) };
+    static IMAGE_JPEG: RefCell<Option<Vec<u8>>> = const { RefCell::new(None) };
+    static IMAGE_OCR: RefCell<Option<String>> = const { RefCell::new(None) };
+    static IMAGE_QR: RefCell<Option<String>> = const { RefCell::new(None) };
+    static IMAGE_INFO: RefCell<Option<String>> = const { RefCell::new(None) };
     static PREVIEW_TEXT: RefCell<String> = const { RefCell::new(String::new()) };
     static PREVIEW_KIND: RefCell<FormatKind> = const { RefCell::new(FormatKind::Plain) };
     static SOURCE_KIND: RefCell<FormatKind> = const { RefCell::new(FormatKind::Plain) };
@@ -28,10 +37,23 @@ define_class!(
     impl PreviewTarget {
         #[unsafe(method(copyClicked:))]
         fn copy_clicked(&self, _sender: Option<&AnyObject>) {
-            PREVIEW_TEXT.with(|text| {
-                let _ = clipboard::write_clipboard(&text.borrow());
-            });
-            flash_button(&COPY_BUTTON, "Copied  \u{2713}", "Copy", copy_flash_color(), true);
+            let copied = if showing_image_pixels() {
+                copy_image_pixels()
+            } else {
+                PREVIEW_TEXT.with(|text| clipboard::write_clipboard(&text.borrow()))
+            };
+            let ok = copied.is_ok();
+            flash_button(
+                &COPY_BUTTON,
+                "Copied  \u{2713}",
+                "Copy",
+                if ok {
+                    copy_flash_color()
+                } else {
+                    error_flash_color()
+                },
+                ok,
+            );
             reset_later(self, sel!(resetCopyLabel:));
         }
 
@@ -42,8 +64,12 @@ define_class!(
 
         #[unsafe(method(originalClicked:))]
         fn original_clicked(&self, _sender: Option<&AnyObject>) {
-            let body = SOURCE_TEXT.with(|src| src.borrow().clone());
             select_mode(ViewMode::Original);
+            if source_is_image() {
+                apply_image_preview();
+                return;
+            }
+            let body = SOURCE_TEXT.with(|src| src.borrow().clone());
             apply_preview(&body);
         }
 
@@ -90,6 +116,16 @@ define_class!(
 
         #[unsafe(method(compressClicked:))]
         fn compress_clicked(&self, _sender: Option<&AnyObject>) {
+            if source_is_image() {
+                if IMAGE_JPEG.with(|slot| slot.borrow().is_none()) {
+                    flash_button(&COMPRESS_BUTTON, "Failed", "Compress", error_flash_color(), true);
+                    reset_later(self, sel!(resetCompressLabel:));
+                    return;
+                }
+                select_mode(ViewMode::Compress);
+                apply_image_preview();
+                return;
+            }
             let body = SOURCE_TEXT.with(|src| compress::try_compress(&src.borrow()));
             let Some(body) = body else {
                 flash_button(&COMPRESS_BUTTON, "Failed", "Compress", error_flash_color(), true);
@@ -98,6 +134,59 @@ define_class!(
             };
             select_mode(ViewMode::Compress);
             apply_preview(&body);
+        }
+
+        #[unsafe(method(infoClicked:))]
+        fn info_clicked(&self, _sender: Option<&AnyObject>) {
+            let body = IMAGE_INFO.with(|slot| slot.borrow().clone()).or_else(|| {
+                SOURCE_IMAGE.with(|slot| slot.borrow().as_ref().map(image_ops::info_dimensions))
+            });
+            let Some(body) = body else {
+                flash_button(&INFO_BUTTON, "Failed", "Info", error_flash_color(), true);
+                reset_later(self, sel!(resetInfoLabel:));
+                return;
+            };
+            select_mode(ViewMode::Info);
+            apply_preview_with_kind(&body, FormatKind::Image);
+        }
+
+        #[unsafe(method(resetInfoLabel:))]
+        fn reset_info_label(&self, _sender: Option<&AnyObject>) {
+            paint_mode_buttons();
+        }
+
+        #[unsafe(method(ocrClicked:))]
+        fn ocr_clicked(&self, _sender: Option<&AnyObject>) {
+            let body = IMAGE_OCR.with(|slot| slot.borrow().clone());
+            let Some(body) = body else {
+                flash_button(&OCR_BUTTON, "Failed", "Text", error_flash_color(), true);
+                reset_later(self, sel!(resetOcrLabel:));
+                return;
+            };
+            select_mode(ViewMode::Ocr);
+            apply_preview_with_kind(&body, FormatKind::Text);
+        }
+
+        #[unsafe(method(resetOcrLabel:))]
+        fn reset_ocr_label(&self, _sender: Option<&AnyObject>) {
+            paint_mode_buttons();
+        }
+
+        #[unsafe(method(qrClicked:))]
+        fn qr_clicked(&self, _sender: Option<&AnyObject>) {
+            let body = IMAGE_QR.with(|slot| slot.borrow().clone());
+            let Some(body) = body else {
+                flash_button(&QR_BUTTON, "Failed", "QR", error_flash_color(), true);
+                reset_later(self, sel!(resetQrLabel:));
+                return;
+            };
+            select_mode(ViewMode::Qr);
+            apply_preview_with_kind(&body, FormatKind::Url);
+        }
+
+        #[unsafe(method(resetQrLabel:))]
+        fn reset_qr_label(&self, _sender: Option<&AnyObject>) {
+            paint_mode_buttons();
         }
 
         #[unsafe(method(resetCompressLabel:))]
@@ -208,6 +297,15 @@ fn redact_flash_color() -> Retained<NSColor> {
 }
 fn dataframe_flash_color() -> Retained<NSColor> {
     NSColor::colorWithCalibratedRed_green_blue_alpha(0.39, 0.82, 1.0, 1.0)
+}
+fn info_flash_color() -> Retained<NSColor> {
+    NSColor::colorWithCalibratedRed_green_blue_alpha(0.96, 0.77, 0.26, 1.0)
+}
+fn ocr_flash_color() -> Retained<NSColor> {
+    NSColor::colorWithCalibratedRed_green_blue_alpha(0.62, 0.55, 1.0, 1.0)
+}
+fn qr_flash_color() -> Retained<NSColor> {
+    NSColor::colorWithCalibratedRed_green_blue_alpha(1.0, 0.55, 0.70, 1.0)
 }
 fn save_flash_color() -> Retained<NSColor> {
     NSColor::colorWithCalibratedRed_green_blue_alpha(1.0, 0.68, 0.36, 1.0)

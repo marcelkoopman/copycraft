@@ -3,17 +3,64 @@ pub fn show(source: &str, kind: FormatKind) -> Result<(), String> {
     let source = source.to_string();
     let body = source.clone();
     let mode = ViewMode::Original;
-    let title = window_title(kind, mode);
+    SOURCE_IMAGE.with(|slot| slot.replace(None));
+    clear_image_actions();
     SOURCE_TEXT.with(|slot| slot.replace(source));
     PREVIEW_TEXT.with(|slot| slot.replace(body.clone()));
     PREVIEW_KIND.with(|slot| slot.replace(kind));
     SOURCE_KIND.with(|slot| slot.replace(kind));
     VIEW_MODE.with(|slot| slot.replace(mode));
+    let title = window_title(kind, mode);
+    activate_app(mtm);
+    ensure_preview_window(mtm, &title);
+    present_text_body();
+    SCROLL.with(|slot| {
+        if let Some(scroll) = slot.borrow().as_ref() {
+            scroll.setWantsLayer(true);
+            scroll.setAlphaValue(1.0);
+        }
+    });
+    apply_toolbar_for_kind(kind);
+    flash_button(&COPY_BUTTON, "Copied  \u{2713}", "Copy", copy_flash_color(), false);
+    flash_button(&SAVE_BUTTON, "Saved  \u{2713}", "Save", save_flash_color(), false);
+    Ok(())
+}
 
+pub fn show_image(image: &ClipboardImage) -> Result<(), String> {
+    let mtm = MainThreadMarker::new().ok_or("preview must run on the main thread")?;
+    let mode = ViewMode::Original;
+    let kind = FormatKind::Image;
+    SOURCE_IMAGE.with(|slot| slot.replace(Some(image.clone())));
+    clear_image_actions();
+    SOURCE_TEXT.with(|slot| slot.replace(String::new()));
+    PREVIEW_TEXT.with(|slot| slot.replace(String::new()));
+    PREVIEW_KIND.with(|slot| slot.replace(kind));
+    SOURCE_KIND.with(|slot| slot.replace(kind));
+    VIEW_MODE.with(|slot| slot.replace(mode));
+    let title = window_title(kind, mode);
+    activate_app(mtm);
+    ensure_preview_window(mtm, &title);
+    present_image_body();
+    IMAGE_VIEW.with(|slot| {
+        if let Some(view) = slot.borrow().as_ref() {
+            view.setWantsLayer(true);
+            view.setAlphaValue(1.0);
+        }
+    });
+    apply_toolbar_for_kind(kind);
+    flash_button(&COPY_BUTTON, "Copied  \u{2713}", "Copy", copy_flash_color(), false);
+    flash_button(&SAVE_BUTTON, "Saved  \u{2713}", "Save", save_flash_color(), false);
+    start_image_actions(image.clone());
+    Ok(())
+}
+
+fn activate_app(mtm: MainThreadMarker) {
     let app = NSApplication::sharedApplication(mtm);
     #[allow(deprecated)]
     app.activateIgnoringOtherApps(true);
+}
 
+fn ensure_preview_window(mtm: MainThreadMarker, title: &str) {
     let reused = WINDOW.with(|slot| slot.borrow().is_some());
     if reused {
         WINDOW.with(|slot| {
@@ -24,21 +71,7 @@ pub fn show(source: &str, kind: FormatKind) -> Result<(), String> {
                 window.orderFrontRegardless();
             }
         });
-        TEXT.with(|slot| {
-            if let Some(text) = slot.borrow().as_ref() {
-                set_body(text, &body, kind);
-            }
-        });
-        SCROLL.with(|slot| {
-            if let Some(scroll) = slot.borrow().as_ref() {
-                scroll.setWantsLayer(true);
-                scroll.setAlphaValue(1.0);
-            }
-        });
-        apply_toolbar_for_kind(kind);
-        flash_button(&COPY_BUTTON, "Copied  \u{2713}", "Copy", copy_flash_color(), false);
-        flash_button(&SAVE_BUTTON, "Saved  \u{2713}", "Save", save_flash_color(), false);
-        return Ok(());
+        return;
     }
 
     let width = 780.0;
@@ -142,6 +175,30 @@ pub fn show(source: &str, kind: FormatKind) -> Result<(), String> {
         false,
     );
     style_title_button(&dataframe_button, "Dataframe", &idle_button_color());
+    let info_button = make_toolbar_button(
+        mtm,
+        NSRect::new(NSPoint::new(format_x, button_y), NSSize::new(button_w, button_h)),
+        &target,
+        sel!(infoClicked:),
+        false,
+    );
+    style_title_button(&info_button, "Info", &idle_button_color());
+    let ocr_button = make_toolbar_button(
+        mtm,
+        NSRect::new(NSPoint::new(format_x, button_y), NSSize::new(button_w, button_h)),
+        &target,
+        sel!(ocrClicked:),
+        false,
+    );
+    style_title_button(&ocr_button, "Text", &idle_button_color());
+    let qr_button = make_toolbar_button(
+        mtm,
+        NSRect::new(NSPoint::new(format_x, button_y), NSSize::new(button_w, button_h)),
+        &target,
+        sel!(qrClicked:),
+        false,
+    );
+    style_title_button(&qr_button, "QR", &idle_button_color());
     let save_button = make_toolbar_button(
         mtm,
         NSRect::new(NSPoint::new(save_x, button_y), NSSize::new(button_w, button_h)),
@@ -158,10 +215,11 @@ pub fn show(source: &str, kind: FormatKind) -> Result<(), String> {
         true,
     );
 
-    let scroll = NSScrollView::initWithFrame(
-        NSScrollView::alloc(mtm),
-        NSRect::new(NSPoint::new(0.0, toolbar_h), NSSize::new(width, height - toolbar_h)),
+    let content_frame = NSRect::new(
+        NSPoint::new(0.0, toolbar_h),
+        NSSize::new(width, height - toolbar_h),
     );
+    let scroll = NSScrollView::initWithFrame(NSScrollView::alloc(mtm), content_frame);
     scroll.setHasVerticalScroller(true);
     scroll.setHasHorizontalScroller(true);
     scroll.setAutohidesScrollers(false);
@@ -183,10 +241,20 @@ pub fn show(source: &str, kind: FormatKind) -> Result<(), String> {
     text.setTextContainerInset(NSSize::new(10.0, 12.0));
     text.setFont(Some(&editor_font()));
     configure_scrolling_text(&text);
-    set_body(&text, &body, kind);
     scroll.setDocumentView(Some(&text));
 
+    let image_view = NSImageView::initWithFrame(NSImageView::alloc(mtm), content_frame);
+    image_view.setEditable(false);
+    image_view.setImageScaling(NSImageScaling::ScaleProportionallyUpOrDown);
+    image_view.setImageAlignment(NSImageAlignment::AlignCenter);
+    image_view.setWantsLayer(true);
+    image_view.setHidden(true);
+    image_view.setAutoresizingMask(
+        NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
+    );
+
     frosted.addSubview(&scroll);
+    frosted.addSubview(&image_view);
     frosted.addSubview(&original_button);
     frosted.addSubview(&format_button);
     frosted.addSubview(&convert_button);
@@ -194,6 +262,9 @@ pub fn show(source: &str, kind: FormatKind) -> Result<(), String> {
     frosted.addSubview(&compress_button);
     frosted.addSubview(&redact_button);
     frosted.addSubview(&dataframe_button);
+    frosted.addSubview(&info_button);
+    frosted.addSubview(&ocr_button);
+    frosted.addSubview(&qr_button);
     frosted.addSubview(&save_button);
     frosted.addSubview(&copy_button);
     window.setContentView(Some(&frosted));
@@ -205,6 +276,7 @@ pub fn show(source: &str, kind: FormatKind) -> Result<(), String> {
     TARGET.with(|slot| slot.replace(Some(target)));
     TEXT.with(|slot| slot.replace(Some(text)));
     SCROLL.with(|slot| slot.replace(Some(scroll)));
+    IMAGE_VIEW.with(|slot| slot.replace(Some(image_view)));
     ORIGINAL_BUTTON.with(|slot| slot.replace(Some(original_button)));
     FORMAT_BUTTON.with(|slot| slot.replace(Some(format_button)));
     CONVERT_BUTTON.with(|slot| slot.replace(Some(convert_button)));
@@ -212,11 +284,10 @@ pub fn show(source: &str, kind: FormatKind) -> Result<(), String> {
     COMPRESS_BUTTON.with(|slot| slot.replace(Some(compress_button)));
     REDACT_BUTTON.with(|slot| slot.replace(Some(redact_button)));
     DATAFRAME_BUTTON.with(|slot| slot.replace(Some(dataframe_button)));
+    INFO_BUTTON.with(|slot| slot.replace(Some(info_button)));
+    OCR_BUTTON.with(|slot| slot.replace(Some(ocr_button)));
+    QR_BUTTON.with(|slot| slot.replace(Some(qr_button)));
     SAVE_BUTTON.with(|slot| slot.replace(Some(save_button)));
     COPY_BUTTON.with(|slot| slot.replace(Some(copy_button)));
     WINDOW.with(|slot| slot.replace(Some(window)));
-    apply_toolbar_for_kind(kind);
-    flash_button(&COPY_BUTTON, "Copied  \u{2713}", "Copy", copy_flash_color(), false);
-    flash_button(&SAVE_BUTTON, "Saved  \u{2713}", "Save", save_flash_color(), false);
-    Ok(())
 }

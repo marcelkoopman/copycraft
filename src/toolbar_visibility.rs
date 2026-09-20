@@ -183,4 +183,17 @@ mod tests {
         ));
         assert!(!shows_convert("<root><item/></root>"));
     }
+
+    #[test]
+    fn image_hides_text_transforms() {
+        assert!(!shows_decode(FormatKind::Image));
+        assert!(!shows_compress(FormatKind::Image));
+        assert!(!shows_dataframe(FormatKind::Image));
+        assert!(!shows_redact(
+            FormatKind::Image,
+            "mail me at jan@example.com"
+        ));
+        assert!(!shows_format(""));
+        assert!(!shows_convert(""));
+    }
 }

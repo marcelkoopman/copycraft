@@ -22,6 +22,7 @@ arboard = "3"
 base64 = "0.23"
 compression-prompt = "0.1.2"
 global-hotkey = "0.8"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 polars = { version = "0.55.2", default-features = false, features = ["csv", "json", "fmt", "dtype-slim"] }
 redact-core = "0.12"
 serde_json = "1"
@@ -30,18 +31,25 @@ tray-icon = "0.25"
 winit = "0.30"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+dispatch2 = "0.3"
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSString", "NSAttributedString", "NSArray", "NSURL", "NSUserDefaults"] }
+objc2-foundation = { version = "0.3", features = ["NSString", "NSAttributedString", "NSArray", "NSURL", "NSUserDefaults", "NSData", "NSDictionary", "NSError"] }
 objc2-app-kit = { version = "0.3", features = [
     "NSAnimation",
     "NSAnimationContext",
     "NSAppearance",
     "NSApplication",
+    "NSBitmapImageRep",
     "NSButton",
+    "NSCell",
     "NSColor",
     "NSControl",
     "NSFont",
     "NSGraphics",
+    "NSImage",
+    "NSImageCell",
+    "NSImageRep",
+    "NSImageView",
     "NSResponder",
     "NSSavePanel",
     "NSScrollView",
@@ -53,3 +61,4 @@ objc2-app-kit = { version = "0.3", features = [
     "NSVisualEffectView",
     "NSWindow",
 ] }
+objc2-vision = { version = "0.3.2", default-features = false, features = ["std", "VNRecognizeTextRequest", "VNDetectBarcodesRequest", "VNRequestHandler", "VNObservation", "VNRequest", "VNTypes"] }

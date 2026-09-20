@@ -12,6 +12,7 @@ pub enum FormatKind {
     Csv,
     Tsv,
     Dataframe,
+    Image,
     Text,
     Plain,
 }
@@ -28,6 +29,7 @@ impl FormatKind {
             Self::Csv => "csv",
             Self::Tsv => "tsv",
             Self::Dataframe => "DF",
+            Self::Image => "img",
             Self::Text => "¶",
             Self::Plain => "Aa",
         }
@@ -44,6 +46,7 @@ impl FormatKind {
             Self::Csv => "CSV",
             Self::Tsv => "TSV",
             Self::Dataframe => "Dataframe",
+            Self::Image => "Image",
             Self::Text | Self::Plain => "Content",
         }
     }
@@ -58,6 +61,7 @@ impl FormatKind {
             Self::Csv => "CSV",
             Self::Tsv => "TSV",
             Self::Dataframe => "Dataframe",
+            Self::Image => "Image",
             _ => "Content",
         }
     }
@@ -73,6 +77,7 @@ impl FormatKind {
             Self::Csv => "csv",
             Self::Tsv => "tsv",
             Self::Dataframe => "csv",
+            Self::Image => "png",
             Self::Text | Self::Plain => "txt",
         }
     }
@@ -92,6 +97,7 @@ impl FormatKind {
             Self::Csv => Some([100, 210, 255, 255]),
             Self::Tsv => Some([64, 186, 232, 255]),
             Self::Dataframe => Some([100, 210, 255, 255]),
+            Self::Image => Some([255, 126, 182, 255]),
             Self::Text | Self::Plain => None,
         }
     }
@@ -145,6 +151,7 @@ pub fn format_text(text: &str) -> String {
         | FormatKind::Csv
         | FormatKind::Tsv
         | FormatKind::Dataframe
+        | FormatKind::Image
         | FormatKind::Text
         | FormatKind::Plain => text.to_string(),
     }
@@ -482,6 +489,7 @@ mod tests {
         assert_eq!(Csv.menu_symbol(), "csv");
         assert_eq!(Tsv.menu_symbol(), "tsv");
         assert_eq!(Dataframe.menu_symbol(), "DF");
+        assert_eq!(Image.menu_symbol(), "img");
         assert_eq!(Text.menu_symbol(), "¶");
         assert_eq!(Plain.menu_symbol(), "Aa");
     }
@@ -496,6 +504,7 @@ mod tests {
         assert_eq!(FormatKind::Csv.suggested_extension(), "csv");
         assert_eq!(FormatKind::Tsv.suggested_extension(), "tsv");
         assert_eq!(FormatKind::Dataframe.suggested_extension(), "csv");
+        assert_eq!(FormatKind::Image.suggested_extension(), "png");
         assert_eq!(FormatKind::Plain.suggested_extension(), "txt");
         assert_eq!(FormatKind::Csv.suggested_filename(), "clipboard.csv");
         assert_eq!(FormatKind::Tsv.suggested_filename(), "clipboard.tsv");
@@ -505,6 +514,7 @@ mod tests {
     #[test]
     fn accent_rgba_for_typed_kinds() {
         assert_eq!(FormatKind::Rust.accent_rgba(), Some([222, 165, 132, 255]));
+        assert_eq!(FormatKind::Image.accent_rgba(), Some([255, 126, 182, 255]));
         assert_eq!(FormatKind::Plain.accent_rgba(), None);
     }
 
@@ -588,6 +598,8 @@ fn main() {
         assert_eq!(FormatKind::Csv.preview_heading(), "CSV");
         assert_eq!(FormatKind::Tsv.preview_heading(), "TSV");
         assert_eq!(FormatKind::Dataframe.preview_heading(), "Dataframe");
+        assert_eq!(FormatKind::Image.source_heading(), "Image");
+        assert_eq!(FormatKind::Image.preview_heading(), "Image");
         assert_eq!(FormatKind::Rust.source_heading(), "Rust");
         assert_eq!(FormatKind::Rust.preview_heading(), "Formatted Rust");
         assert_eq!(FormatKind::Json.source_heading(), "JSON");
