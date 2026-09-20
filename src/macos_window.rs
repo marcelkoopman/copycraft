@@ -23,8 +23,10 @@ use crate::convert;
 use crate::dataframe;
 use crate::decode;
 use crate::format::{self, FormatKind};
-use crate::macos_preview_image::nsimage_from_clipboard;
+use crate::image_ops;
+use crate::macos_preview_image::{nsimage_from_bytes, nsimage_from_clipboard};
 use crate::macos_preview_text::{configure_scrolling_text, editor_font, set_body};
+use crate::macos_vision;
 use crate::redact;
 use crate::toolbar_visibility;
 
@@ -37,6 +39,9 @@ enum ViewMode {
     Compress,
     Redact,
     Dataframe,
+    Info,
+    Ocr,
+    Qr,
 }
 
 include!("macos_window_state.rs");

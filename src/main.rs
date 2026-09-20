@@ -7,6 +7,7 @@ mod decode;
 mod format;
 mod highlight;
 mod icon;
+mod image_ops;
 mod menubar;
 mod preview;
 mod redact;
@@ -17,6 +18,8 @@ mod transform;
 mod macos_preview_image;
 #[cfg(target_os = "macos")]
 mod macos_preview_text;
+#[cfg(target_os = "macos")]
+mod macos_vision;
 #[cfg(target_os = "macos")]
 mod macos_window;
 

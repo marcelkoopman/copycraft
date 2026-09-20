@@ -3,16 +3,19 @@ fn apply_preview(body: &str) {
 }
 
 fn window_title(kind: FormatKind, mode: ViewMode) -> String {
-    if kind == FormatKind::Image {
-        if mode == ViewMode::Convert {
-            return "Data URI".to_string();
-        }
-        return SOURCE_IMAGE.with(|slot| {
-            slot.borrow()
-                .as_ref()
-                .map(|image| format!("Image {}×{}", image.width, image.height))
-                .unwrap_or_else(|| "Image".to_string())
-        });
+    if kind == FormatKind::Image || source_is_image() {
+        return match mode {
+            ViewMode::Info => "Image info".to_string(),
+            ViewMode::Compress => "JPEG".to_string(),
+            ViewMode::Ocr => "Text".to_string(),
+            ViewMode::Qr => "QR".to_string(),
+            _ => SOURCE_IMAGE.with(|slot| {
+                slot.borrow()
+                    .as_ref()
+                    .map(|image| format!("Image {}×{}", image.width, image.height))
+                    .unwrap_or_else(|| "Image".to_string())
+            }),
+        };
     }
     if mode == ViewMode::Format {
         kind.preview_heading()
@@ -74,8 +77,43 @@ fn showing_original_image() -> bool {
     VIEW_MODE.with(|slot| *slot.borrow() == ViewMode::Original) && source_is_image()
 }
 
+fn showing_image_pixels() -> bool {
+    source_is_image()
+        && matches!(
+            VIEW_MODE.with(|slot| *slot.borrow()),
+            ViewMode::Original | ViewMode::Compress
+        )
+}
+
+fn copy_image_pixels() -> Result<(), String> {
+    if VIEW_MODE.with(|slot| *slot.borrow() == ViewMode::Compress) {
+        let jpeg = IMAGE_JPEG.with(|slot| slot.borrow().clone());
+        let Some(image) = jpeg.as_deref().and_then(image_ops::image_from_encoded) else {
+            return Err("no jpeg".into());
+        };
+        return clipboard::write_clipboard_image(&image);
+    }
+    SOURCE_IMAGE.with(|slot| match slot.borrow().as_ref() {
+        Some(image) => clipboard::write_clipboard_image(image),
+        None => Err("no image on clipboard".into()),
+    })
+}
+
+fn cache_image_actions(image: &ClipboardImage) {
+    IMAGE_JPEG.with(|slot| slot.replace(image_ops::try_jpeg(image)));
+    let (ocr, qr) = macos_vision::scan_image(image);
+    IMAGE_OCR.with(|slot| slot.replace(ocr));
+    IMAGE_QR.with(|slot| slot.replace(qr));
+}
+
+fn clear_image_actions() {
+    IMAGE_JPEG.with(|slot| slot.replace(None));
+    IMAGE_OCR.with(|slot| slot.replace(None));
+    IMAGE_QR.with(|slot| slot.replace(None));
+}
+
 fn reveal_preview_body() {
-    if showing_original_image() {
+    if showing_image_pixels() {
         present_image_body();
         fade_image(1.0, 0.28);
         return;
@@ -99,11 +137,15 @@ fn present_text_body() {
 fn present_image_body() {
     set_view_hidden(&SCROLL, true);
     set_image_hidden(false);
-    let nsimage = SOURCE_IMAGE.with(|slot| {
-        slot.borrow()
-            .as_ref()
-            .and_then(nsimage_from_clipboard)
-    });
+    let nsimage = if VIEW_MODE.with(|slot| *slot.borrow() == ViewMode::Compress) {
+        IMAGE_JPEG.with(|slot| {
+            slot.borrow()
+                .as_ref()
+                .and_then(|bytes| nsimage_from_bytes(bytes))
+        })
+    } else {
+        SOURCE_IMAGE.with(|slot| slot.borrow().as_ref().and_then(nsimage_from_clipboard))
+    };
     IMAGE_VIEW.with(|slot| {
         if let Some(view) = slot.borrow().as_ref() {
             view.setImage(nsimage.as_deref());
@@ -212,6 +254,19 @@ fn paint_mode_buttons() {
         dataframe_flash_color(),
         mode == ViewMode::Dataframe,
     );
+    paint_mode_button(
+        &INFO_BUTTON,
+        "Info",
+        info_flash_color(),
+        mode == ViewMode::Info,
+    );
+    paint_mode_button(
+        &OCR_BUTTON,
+        "Text",
+        ocr_flash_color(),
+        mode == ViewMode::Ocr,
+    );
+    paint_mode_button(&QR_BUTTON, "QR", qr_flash_color(), mode == ViewMode::Qr);
 }
 
 fn paint_mode_button(
@@ -238,16 +293,22 @@ const TOOLBAR_H: f64 = 36.0;
 
 fn apply_toolbar_for_kind(kind: FormatKind) {
     let source = SOURCE_TEXT.with(|slot| slot.borrow().clone());
-    let show_format = kind != FormatKind::Image && toolbar_visibility::shows_format(&source);
-    let show_convert =
-        kind == FormatKind::Image || toolbar_visibility::shows_convert(&source);
+    let is_image = kind == FormatKind::Image;
+    let show_format = !is_image && toolbar_visibility::shows_format(&source);
+    let show_convert = !is_image && toolbar_visibility::shows_convert(&source);
     let show_redact = toolbar_visibility::shows_redact(kind, &source);
     let show_df =
         toolbar_visibility::shows_dataframe(kind) || dataframe::try_format(&source).is_some();
-    let show_compress =
-        toolbar_visibility::shows_compress(kind) && compress::is_large_enough(&source);
+    let show_compress = if is_image {
+        IMAGE_JPEG.with(|slot| slot.borrow().is_some())
+    } else {
+        toolbar_visibility::shows_compress(kind) && compress::is_large_enough(&source)
+    };
     let show_decode =
         toolbar_visibility::shows_decode(kind) && decode::try_decode(&source).is_some();
+    let show_info = is_image;
+    let show_ocr = is_image && IMAGE_OCR.with(|slot| slot.borrow().is_some());
+    let show_qr = is_image && IMAGE_QR.with(|slot| slot.borrow().is_some());
     if !show_format {
         VIEW_MODE.with(|slot| {
             if *slot.borrow() == ViewMode::Format {
@@ -267,7 +328,10 @@ fn apply_toolbar_for_kind(kind: FormatKind) {
         || show_decode
         || show_compress
         || show_redact
-        || show_df;
+        || show_df
+        || show_info
+        || show_ocr
+        || show_qr;
     set_button_hidden(&ORIGINAL_BUTTON, !show_original);
     set_button_hidden(&FORMAT_BUTTON, !show_format);
     set_button_hidden(&CONVERT_BUTTON, !show_convert);
@@ -275,6 +339,9 @@ fn apply_toolbar_for_kind(kind: FormatKind) {
     set_button_hidden(&DATAFRAME_BUTTON, !show_df);
     set_button_hidden(&COMPRESS_BUTTON, !show_compress);
     set_button_hidden(&DECODE_BUTTON, !show_decode);
+    set_button_hidden(&INFO_BUTTON, !show_info);
+    set_button_hidden(&OCR_BUTTON, !show_ocr);
+    set_button_hidden(&QR_BUTTON, !show_qr);
 
     let y = (TOOLBAR_H - TOOLBAR_BTN_H) / 2.0;
     let mut x = TOOLBAR_PAD;
@@ -284,6 +351,10 @@ fn apply_toolbar_for_kind(kind: FormatKind) {
     }
     if show_format {
         place_button(&FORMAT_BUTTON, x, y);
+        x += TOOLBAR_BTN_W + TOOLBAR_GAP;
+    }
+    if show_info {
+        place_button(&INFO_BUTTON, x, y);
         x += TOOLBAR_BTN_W + TOOLBAR_GAP;
     }
     if show_convert {
@@ -296,6 +367,14 @@ fn apply_toolbar_for_kind(kind: FormatKind) {
     }
     if show_compress {
         place_button(&COMPRESS_BUTTON, x, y);
+        x += TOOLBAR_BTN_W + TOOLBAR_GAP;
+    }
+    if show_ocr {
+        place_button(&OCR_BUTTON, x, y);
+        x += TOOLBAR_BTN_W + TOOLBAR_GAP;
+    }
+    if show_qr {
+        place_button(&QR_BUTTON, x, y);
         x += TOOLBAR_BTN_W + TOOLBAR_GAP;
     }
     if show_redact {
@@ -373,6 +452,9 @@ fn save_preview_to_file() -> bool {
     if showing_original_image() {
         return save_image_png(mtm);
     }
+    if showing_image_pixels() && VIEW_MODE.with(|slot| *slot.borrow() == ViewMode::Compress) {
+        return save_image_jpeg(mtm);
+    }
     let kind = if source_is_image() {
         FormatKind::Plain
     } else {
@@ -435,4 +517,31 @@ fn save_image_png(mtm: MainThreadMarker) -> bool {
         return false;
     };
     std::fs::write(path.to_string(), png).is_ok()
+}
+
+fn save_image_jpeg(mtm: MainThreadMarker) -> bool {
+    let jpeg = IMAGE_JPEG.with(|slot| slot.borrow().clone());
+    let Some(jpeg) = jpeg else {
+        return false;
+    };
+    let panel = NSSavePanel::savePanel(mtm);
+    panel.setCanCreateDirectories(true);
+    panel.setExtensionHidden(false);
+    panel.setNameFieldStringValue(&NSString::from_str("clipboard.jpg"));
+    panel.setTitle(Some(&NSString::from_str("Save clipboard")));
+    let ext = NSString::from_str("jpg");
+    let types = NSArray::from_slice(&[&*ext]);
+    #[allow(deprecated)]
+    panel.setAllowedFileTypes(Some(&types));
+
+    if panel.runModal() != NSModalResponseOK {
+        return false;
+    }
+    let Some(url) = panel.URL() else {
+        return false;
+    };
+    let Some(path) = url.path() else {
+        return false;
+    };
+    std::fs::write(path.to_string(), jpeg).is_ok()
 }

@@ -1,7 +1,5 @@
 use std::borrow::Cow;
 
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD;
 use image::ExtendedColorType;
 use image::ImageEncoder;
 use image::codecs::png::PngEncoder;
@@ -45,11 +43,6 @@ impl ClipboardImage {
             )
             .map_err(|e| e.to_string())?;
         Ok(buf)
-    }
-
-    pub fn data_uri(&self) -> Result<String, String> {
-        let png = self.png_bytes()?;
-        Ok(format!("data:image/png;base64,{}", STANDARD.encode(png)))
     }
 }
 
@@ -207,16 +200,13 @@ mod tests {
     }
 
     #[test]
-    fn image_encodes_png_and_data_uri() {
+    fn image_encodes_png() {
         let image = ClipboardImage::new(2, 1, vec![255, 0, 0, 255, 0, 255, 0, 255]).expect("rgba");
         let png = image.png_bytes().expect("png");
         assert!(png.starts_with(&[137, 80, 78, 71, 13, 10, 26, 10]));
         let decoded = image::load_from_memory(&png).expect("decode");
         assert_eq!(decoded.width(), 2);
         assert_eq!(decoded.height(), 1);
-        let uri = image.data_uri().expect("uri");
-        assert!(uri.starts_with("data:image/png;base64,"));
-        assert!(uri.len() > "data:image/png;base64,".len());
     }
 
     #[test]

@@ -4,6 +4,7 @@ pub fn show(source: &str, kind: FormatKind) -> Result<(), String> {
     let body = source.clone();
     let mode = ViewMode::Original;
     SOURCE_IMAGE.with(|slot| slot.replace(None));
+    clear_image_actions();
     SOURCE_TEXT.with(|slot| slot.replace(source));
     PREVIEW_TEXT.with(|slot| slot.replace(body.clone()));
     PREVIEW_KIND.with(|slot| slot.replace(kind));
@@ -30,6 +31,7 @@ pub fn show_image(image: &ClipboardImage) -> Result<(), String> {
     let mode = ViewMode::Original;
     let kind = FormatKind::Image;
     SOURCE_IMAGE.with(|slot| slot.replace(Some(image.clone())));
+    cache_image_actions(image);
     SOURCE_TEXT.with(|slot| slot.replace(String::new()));
     PREVIEW_TEXT.with(|slot| slot.replace(String::new()));
     PREVIEW_KIND.with(|slot| slot.replace(kind));
@@ -172,6 +174,30 @@ fn ensure_preview_window(mtm: MainThreadMarker, title: &str) {
         false,
     );
     style_title_button(&dataframe_button, "Dataframe", &idle_button_color());
+    let info_button = make_toolbar_button(
+        mtm,
+        NSRect::new(NSPoint::new(format_x, button_y), NSSize::new(button_w, button_h)),
+        &target,
+        sel!(infoClicked:),
+        false,
+    );
+    style_title_button(&info_button, "Info", &idle_button_color());
+    let ocr_button = make_toolbar_button(
+        mtm,
+        NSRect::new(NSPoint::new(format_x, button_y), NSSize::new(button_w, button_h)),
+        &target,
+        sel!(ocrClicked:),
+        false,
+    );
+    style_title_button(&ocr_button, "Text", &idle_button_color());
+    let qr_button = make_toolbar_button(
+        mtm,
+        NSRect::new(NSPoint::new(format_x, button_y), NSSize::new(button_w, button_h)),
+        &target,
+        sel!(qrClicked:),
+        false,
+    );
+    style_title_button(&qr_button, "QR", &idle_button_color());
     let save_button = make_toolbar_button(
         mtm,
         NSRect::new(NSPoint::new(save_x, button_y), NSSize::new(button_w, button_h)),
@@ -235,6 +261,9 @@ fn ensure_preview_window(mtm: MainThreadMarker, title: &str) {
     frosted.addSubview(&compress_button);
     frosted.addSubview(&redact_button);
     frosted.addSubview(&dataframe_button);
+    frosted.addSubview(&info_button);
+    frosted.addSubview(&ocr_button);
+    frosted.addSubview(&qr_button);
     frosted.addSubview(&save_button);
     frosted.addSubview(&copy_button);
     window.setContentView(Some(&frosted));
@@ -254,6 +283,9 @@ fn ensure_preview_window(mtm: MainThreadMarker, title: &str) {
     COMPRESS_BUTTON.with(|slot| slot.replace(Some(compress_button)));
     REDACT_BUTTON.with(|slot| slot.replace(Some(redact_button)));
     DATAFRAME_BUTTON.with(|slot| slot.replace(Some(dataframe_button)));
+    INFO_BUTTON.with(|slot| slot.replace(Some(info_button)));
+    OCR_BUTTON.with(|slot| slot.replace(Some(ocr_button)));
+    QR_BUTTON.with(|slot| slot.replace(Some(qr_button)));
     SAVE_BUTTON.with(|slot| slot.replace(Some(save_button)));
     COPY_BUTTON.with(|slot| slot.replace(Some(copy_button)));
     WINDOW.with(|slot| slot.replace(Some(window)));

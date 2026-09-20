@@ -194,5 +194,6 @@ mod tests {
             "mail me at jan@example.com"
         ));
         assert!(!shows_format(""));
+        assert!(!shows_convert(""));
     }
 }
