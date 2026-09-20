@@ -99,17 +99,78 @@ fn copy_image_pixels() -> Result<(), String> {
     })
 }
 
-fn cache_image_actions(image: &ClipboardImage) {
-    IMAGE_JPEG.with(|slot| slot.replace(image_ops::try_jpeg(image)));
-    let (ocr, qr) = macos_vision::scan_image(image);
-    IMAGE_OCR.with(|slot| slot.replace(ocr));
-    IMAGE_QR.with(|slot| slot.replace(qr));
+struct PendingImageActions {
+    scan_id: u64,
+    jpeg: Option<Vec<u8>>,
+    ocr: Option<String>,
+    qr: Option<String>,
+    info: String,
+}
+
+static IMAGE_SCAN_GEN: AtomicU64 = AtomicU64::new(0);
+static PENDING_IMAGE_ACTIONS: Mutex<Option<PendingImageActions>> = Mutex::new(None);
+
+fn start_image_actions(image: ClipboardImage) {
+    let scan_id = IMAGE_SCAN_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    std::thread::spawn(move || {
+        let png = image.png_bytes().ok();
+        let jpeg_all = image_ops::jpeg_bytes(&image, image_ops::JPEG_QUALITY).ok();
+        let jpeg = match (&png, &jpeg_all) {
+            (Some(png), Some(jpeg)) if jpeg.len() < png.len() => Some(jpeg.clone()),
+            _ => None,
+        };
+        let info = image_ops::info_with_sizes(
+            &image,
+            png.as_ref().map(Vec::len),
+            jpeg_all.as_ref().map(Vec::len),
+        );
+        let (ocr, qr) = png
+            .as_deref()
+            .map(macos_vision::scan_png)
+            .unwrap_or((None, None));
+        if scan_id != IMAGE_SCAN_GEN.load(Ordering::SeqCst) {
+            return;
+        }
+        if let Ok(mut slot) = PENDING_IMAGE_ACTIONS.lock() {
+            *slot = Some(PendingImageActions {
+                scan_id,
+                jpeg,
+                ocr,
+                qr,
+                info,
+            });
+        }
+        DispatchQueue::main().exec_async(apply_pending_image_actions);
+    });
+}
+
+fn apply_pending_image_actions() {
+    let pending = PENDING_IMAGE_ACTIONS
+        .lock()
+        .ok()
+        .and_then(|mut slot| slot.take());
+    let Some(pending) = pending else {
+        return;
+    };
+    if pending.scan_id != IMAGE_SCAN_GEN.load(Ordering::SeqCst) || !source_is_image() {
+        return;
+    }
+    IMAGE_JPEG.with(|slot| slot.replace(pending.jpeg));
+    IMAGE_OCR.with(|slot| slot.replace(pending.ocr));
+    IMAGE_QR.with(|slot| slot.replace(pending.qr));
+    IMAGE_INFO.with(|slot| slot.replace(Some(pending.info.clone())));
+    apply_toolbar_for_kind(FormatKind::Image);
+    if VIEW_MODE.with(|slot| *slot.borrow() == ViewMode::Info) {
+        apply_preview_with_kind(&pending.info, FormatKind::Image);
+    }
 }
 
 fn clear_image_actions() {
+    IMAGE_SCAN_GEN.fetch_add(1, Ordering::SeqCst);
     IMAGE_JPEG.with(|slot| slot.replace(None));
     IMAGE_OCR.with(|slot| slot.replace(None));
     IMAGE_QR.with(|slot| slot.replace(None));
+    IMAGE_INFO.with(|slot| slot.replace(None));
 }
 
 fn reveal_preview_body() {

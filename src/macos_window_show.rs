@@ -31,7 +31,7 @@ pub fn show_image(image: &ClipboardImage) -> Result<(), String> {
     let mode = ViewMode::Original;
     let kind = FormatKind::Image;
     SOURCE_IMAGE.with(|slot| slot.replace(Some(image.clone())));
-    cache_image_actions(image);
+    clear_image_actions();
     SOURCE_TEXT.with(|slot| slot.replace(String::new()));
     PREVIEW_TEXT.with(|slot| slot.replace(String::new()));
     PREVIEW_KIND.with(|slot| slot.replace(kind));
@@ -50,6 +50,7 @@ pub fn show_image(image: &ClipboardImage) -> Result<(), String> {
     apply_toolbar_for_kind(kind);
     flash_button(&COPY_BUTTON, "Copied  \u{2713}", "Copy", copy_flash_color(), false);
     flash_button(&SAVE_BUTTON, "Saved  \u{2713}", "Save", save_flash_color(), false);
+    start_image_actions(image.clone());
     Ok(())
 }
 

@@ -6,11 +6,15 @@ use crate::clipboard::ClipboardImage;
 
 pub const JPEG_QUALITY: u8 = 80;
 
-pub fn info_text(image: &ClipboardImage) -> String {
-    let png_len = image.png_bytes().ok().map(|bytes| bytes.len());
-    let jpeg_len = jpeg_bytes(image, JPEG_QUALITY)
-        .ok()
-        .map(|bytes| bytes.len());
+pub fn info_dimensions(image: &ClipboardImage) -> String {
+    info_with_sizes(image, None, None)
+}
+
+pub fn info_with_sizes(
+    image: &ClipboardImage,
+    png_len: Option<usize>,
+    jpeg_len: Option<usize>,
+) -> String {
     let mut lines = vec![
         "Image".to_string(),
         format!("Size: {}×{}", image.width, image.height),
@@ -38,12 +42,6 @@ pub fn jpeg_bytes(image: &ClipboardImage, quality: u8) -> Result<Vec<u8>, String
         )
         .map_err(|e| e.to_string())?;
     Ok(buf)
-}
-
-pub fn try_jpeg(image: &ClipboardImage) -> Option<Vec<u8>> {
-    let png = image.png_bytes().ok()?;
-    let jpeg = jpeg_bytes(image, JPEG_QUALITY).ok()?;
-    (jpeg.len() < png.len()).then_some(jpeg)
 }
 
 pub fn image_from_encoded(bytes: &[u8]) -> Option<ClipboardImage> {
@@ -89,7 +87,7 @@ fn format_bytes(n: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{aspect_ratio, format_bytes, image_from_encoded, info_text, jpeg_bytes, try_jpeg};
+    use super::{aspect_ratio, format_bytes, image_from_encoded, info_with_sizes, jpeg_bytes};
     use crate::clipboard::ClipboardImage;
 
     fn sample() -> ClipboardImage {
@@ -105,7 +103,10 @@ mod tests {
 
     #[test]
     fn info_includes_dimensions_and_sizes() {
-        let text = info_text(&sample());
+        let image = sample();
+        let png_len = image.png_bytes().ok().map(|bytes| bytes.len());
+        let jpeg_len = jpeg_bytes(&image, 80).ok().map(|bytes| bytes.len());
+        let text = info_with_sizes(&image, png_len, jpeg_len);
         assert!(text.contains("64×64"));
         assert!(text.contains("1:1"));
         assert!(text.contains("PNG:"));
@@ -125,8 +126,10 @@ mod tests {
 
     #[test]
     fn noisy_image_jpeg_is_smaller_than_png() {
-        let jpeg = try_jpeg(&sample());
-        assert!(jpeg.is_some());
+        let image = sample();
+        let png = image.png_bytes().expect("png");
+        let jpeg = jpeg_bytes(&image, 80).expect("jpeg");
+        assert!(jpeg.len() < png.len());
     }
 
     #[test]

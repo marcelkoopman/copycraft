@@ -31,6 +31,7 @@ tray-icon = "0.25"
 winit = "0.30"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+dispatch2 = "0.3"
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSString", "NSAttributedString", "NSArray", "NSURL", "NSUserDefaults", "NSData", "NSDictionary", "NSError"] }
 objc2-app-kit = { version = "0.3", features = [
@@ -38,6 +39,7 @@ objc2-app-kit = { version = "0.3", features = [
     "NSAnimationContext",
     "NSAppearance",
     "NSApplication",
+    "NSBitmapImageRep",
     "NSButton",
     "NSCell",
     "NSColor",
@@ -46,6 +48,7 @@ objc2-app-kit = { version = "0.3", features = [
     "NSGraphics",
     "NSImage",
     "NSImageCell",
+    "NSImageRep",
     "NSImageView",
     "NSResponder",
     "NSSavePanel",

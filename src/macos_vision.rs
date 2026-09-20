@@ -8,13 +8,8 @@ use objc2_vision::{
     VNRequest, VNRequestTextRecognitionLevel,
 };
 
-use crate::clipboard::ClipboardImage;
-
-pub(crate) fn scan_image(image: &ClipboardImage) -> (Option<String>, Option<String>) {
-    let Ok(png) = image.png_bytes() else {
-        return (None, None);
-    };
-    let data = NSData::with_bytes(&png);
+pub(crate) fn scan_png(png: &[u8]) -> (Option<String>, Option<String>) {
+    let data = NSData::with_bytes(png);
     let options = NSDictionary::new();
     let handler = VNImageRequestHandler::initWithData_options(
         VNImageRequestHandler::alloc(),

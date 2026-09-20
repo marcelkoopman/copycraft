@@ -21,6 +21,7 @@ thread_local! {
     static IMAGE_JPEG: RefCell<Option<Vec<u8>>> = const { RefCell::new(None) };
     static IMAGE_OCR: RefCell<Option<String>> = const { RefCell::new(None) };
     static IMAGE_QR: RefCell<Option<String>> = const { RefCell::new(None) };
+    static IMAGE_INFO: RefCell<Option<String>> = const { RefCell::new(None) };
     static PREVIEW_TEXT: RefCell<String> = const { RefCell::new(String::new()) };
     static PREVIEW_KIND: RefCell<FormatKind> = const { RefCell::new(FormatKind::Plain) };
     static SOURCE_KIND: RefCell<FormatKind> = const { RefCell::new(FormatKind::Plain) };
@@ -137,7 +138,9 @@ define_class!(
 
         #[unsafe(method(infoClicked:))]
         fn info_clicked(&self, _sender: Option<&AnyObject>) {
-            let body = SOURCE_IMAGE.with(|slot| slot.borrow().as_ref().map(image_ops::info_text));
+            let body = IMAGE_INFO.with(|slot| slot.borrow().clone()).or_else(|| {
+                SOURCE_IMAGE.with(|slot| slot.borrow().as_ref().map(image_ops::info_dimensions))
+            });
             let Some(body) = body else {
                 flash_button(&INFO_BUTTON, "Failed", "Info", error_flash_color(), true);
                 reset_later(self, sel!(resetInfoLabel:));

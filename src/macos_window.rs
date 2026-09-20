@@ -1,7 +1,10 @@
 #![cfg(target_os = "macos")]
 
 use std::cell::RefCell;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
+use dispatch2::DispatchQueue;
 use objc2::rc::{Allocated, Retained};
 use objc2::runtime::{AnyObject, NSObject};
 use objc2::{AnyThread, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
