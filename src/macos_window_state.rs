@@ -3,6 +3,7 @@ thread_local! {
     static TARGET: RefCell<Option<Retained<PreviewTarget>>> = const { RefCell::new(None) };
     static TEXT: RefCell<Option<Retained<NSTextView>>> = const { RefCell::new(None) };
     static SCROLL: RefCell<Option<Retained<NSScrollView>>> = const { RefCell::new(None) };
+    static IMAGE_VIEW: RefCell<Option<Retained<NSImageView>>> = const { RefCell::new(None) };
     static COPY_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static ORIGINAL_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static FORMAT_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
@@ -13,6 +14,7 @@ thread_local! {
     static DATAFRAME_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static SAVE_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static SOURCE_TEXT: RefCell<String> = const { RefCell::new(String::new()) };
+    static SOURCE_IMAGE: RefCell<Option<ClipboardImage>> = const { RefCell::new(None) };
     static PREVIEW_TEXT: RefCell<String> = const { RefCell::new(String::new()) };
     static PREVIEW_KIND: RefCell<FormatKind> = const { RefCell::new(FormatKind::Plain) };
     static SOURCE_KIND: RefCell<FormatKind> = const { RefCell::new(FormatKind::Plain) };
@@ -28,10 +30,26 @@ define_class!(
     impl PreviewTarget {
         #[unsafe(method(copyClicked:))]
         fn copy_clicked(&self, _sender: Option<&AnyObject>) {
-            PREVIEW_TEXT.with(|text| {
-                let _ = clipboard::write_clipboard(&text.borrow());
-            });
-            flash_button(&COPY_BUTTON, "Copied  \u{2713}", "Copy", copy_flash_color(), true);
+            let copied = if showing_original_image() {
+                SOURCE_IMAGE.with(|slot| match slot.borrow().as_ref() {
+                    Some(image) => clipboard::write_clipboard_image(image),
+                    None => Err("no image on clipboard".into()),
+                })
+            } else {
+                PREVIEW_TEXT.with(|text| clipboard::write_clipboard(&text.borrow()))
+            };
+            let ok = copied.is_ok();
+            flash_button(
+                &COPY_BUTTON,
+                "Copied  \u{2713}",
+                "Copy",
+                if ok {
+                    copy_flash_color()
+                } else {
+                    error_flash_color()
+                },
+                ok,
+            );
             reset_later(self, sel!(resetCopyLabel:));
         }
 
@@ -42,8 +60,12 @@ define_class!(
 
         #[unsafe(method(originalClicked:))]
         fn original_clicked(&self, _sender: Option<&AnyObject>) {
-            let body = SOURCE_TEXT.with(|src| src.borrow().clone());
             select_mode(ViewMode::Original);
+            if source_is_image() {
+                apply_image_preview();
+                return;
+            }
+            let body = SOURCE_TEXT.with(|src| src.borrow().clone());
             apply_preview(&body);
         }
 
@@ -56,6 +78,19 @@ define_class!(
 
         #[unsafe(method(convertClicked:))]
         fn convert_clicked(&self, _sender: Option<&AnyObject>) {
+            if source_is_image() {
+                let body = SOURCE_IMAGE.with(|slot| {
+                    slot.borrow().as_ref().and_then(|image| image.data_uri().ok())
+                });
+                let Some(body) = body else {
+                    flash_button(&CONVERT_BUTTON, "Failed", "Convert", error_flash_color(), true);
+                    reset_later(self, sel!(resetConvertLabel:));
+                    return;
+                };
+                select_mode(ViewMode::Convert);
+                apply_preview_with_kind(&body, FormatKind::Image);
+                return;
+            }
             let body = SOURCE_TEXT.with(|src| convert::try_convert(&src.borrow()));
             let Some(body) = body else {
                 flash_button(&CONVERT_BUTTON, "Failed", "Convert", error_flash_color(), true);

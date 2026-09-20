@@ -1,22 +1,82 @@
+use std::borrow::Cow;
+
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
+use image::ExtendedColorType;
+use image::ImageEncoder;
+use image::codecs::png::PngEncoder;
+
 use crate::format;
 
 const MAX_HISTORY: usize = 20;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClipboardImage {
+    pub width: usize,
+    pub height: usize,
+    pub rgba: Vec<u8>,
+}
+
+impl ClipboardImage {
+    pub fn new(width: usize, height: usize, rgba: Vec<u8>) -> Option<Self> {
+        let pixels = width.checked_mul(height)?.checked_mul(4)?;
+        if width == 0 || height == 0 || rgba.len() != pixels {
+            return None;
+        }
+        Some(Self {
+            width,
+            height,
+            rgba,
+        })
+    }
+
+    pub fn from_arboard(data: arboard::ImageData<'_>) -> Option<Self> {
+        Self::new(data.width, data.height, data.bytes.into_owned())
+    }
+
+    pub fn png_bytes(&self) -> Result<Vec<u8>, String> {
+        let mut buf = Vec::new();
+        PngEncoder::new(&mut buf)
+            .write_image(
+                &self.rgba,
+                self.width as u32,
+                self.height as u32,
+                ExtendedColorType::Rgba8,
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(buf)
+    }
+
+    pub fn data_uri(&self) -> Result<String, String> {
+        let png = self.png_bytes()?;
+        Ok(format!("data:image/png;base64,{}", STANDARD.encode(png)))
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClipboardView {
     Empty,
     NoText,
     Text(String),
+    Image(ClipboardImage),
 }
 
 impl ClipboardView {
     pub fn from_os() -> Self {
         match arboard::Clipboard::new() {
-            Ok(mut cb) => match cb.get_text() {
-                Ok(text) if text.trim().is_empty() => Self::Empty,
-                Ok(text) => Self::Text(text),
-                Err(_) => Self::NoText,
-            },
+            Ok(mut cb) => {
+                let text = cb.get_text().ok();
+                match text {
+                    Some(text) if !text.trim().is_empty() => Self::Text(text),
+                    other => match cb.get_image().ok().and_then(ClipboardImage::from_arboard) {
+                        Some(image) => Self::Image(image),
+                        None if other.as_deref().is_some_and(|text| text.trim().is_empty()) => {
+                            Self::Empty
+                        }
+                        None => Self::NoText,
+                    },
+                }
+            }
             Err(_) => Self::NoText,
         }
     }
@@ -24,6 +84,25 @@ impl ClipboardView {
     pub fn text(&self) -> Option<&str> {
         match self {
             Self::Text(text) => Some(text),
+            Self::Empty | Self::NoText | Self::Image(_) => None,
+        }
+    }
+
+    pub fn image(&self) -> Option<&ClipboardImage> {
+        match self {
+            Self::Image(image) => Some(image),
+            Self::Empty | Self::NoText | Self::Text(_) => None,
+        }
+    }
+
+    pub fn is_previewable(&self) -> bool {
+        matches!(self, Self::Text(_) | Self::Image(_))
+    }
+
+    pub fn type_mark(&self) -> Option<&'static str> {
+        match self {
+            Self::Text(text) => Some(menu_mark(text)),
+            Self::Image(_) => Some(format::FormatKind::Image.menu_symbol()),
             Self::Empty | Self::NoText => None,
         }
     }
@@ -33,6 +112,7 @@ impl ClipboardView {
             Self::Empty => "(clipboard is empty)".to_string(),
             Self::NoText => "(clipboard has no text)".to_string(),
             Self::Text(text) => one_line(text),
+            Self::Image(_) => format::FormatKind::Image.menu_symbol().to_string(),
         }
     }
 }
@@ -78,6 +158,16 @@ pub fn write_clipboard(text: &str) -> Result<(), String> {
     cb.set_text(text.to_string()).map_err(|e| e.to_string())
 }
 
+pub fn write_clipboard_image(image: &ClipboardImage) -> Result<(), String> {
+    let mut cb = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+    cb.set_image(arboard::ImageData {
+        width: image.width,
+        height: image.height,
+        bytes: Cow::Borrowed(&image.rgba),
+    })
+    .map_err(|e| e.to_string())
+}
+
 pub fn clear_clipboard() -> Result<(), String> {
     let mut cb = arboard::Clipboard::new().map_err(|e| e.to_string())?;
     cb.clear().map_err(|e| e.to_string())
@@ -105,7 +195,43 @@ pub fn one_line(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{ClipboardHistory, formatted, one_line, try_format_json};
+    use super::{
+        ClipboardHistory, ClipboardImage, ClipboardView, formatted, one_line, try_format_json,
+    };
+
+    #[test]
+    fn image_rejects_invalid_dimensions() {
+        assert!(ClipboardImage::new(0, 1, vec![0, 0, 0, 255]).is_none());
+        assert!(ClipboardImage::new(1, 1, vec![0, 0, 0]).is_none());
+        assert!(ClipboardImage::new(2, 1, vec![255, 0, 0, 255]).is_none());
+    }
+
+    #[test]
+    fn image_encodes_png_and_data_uri() {
+        let image = ClipboardImage::new(2, 1, vec![255, 0, 0, 255, 0, 255, 0, 255]).expect("rgba");
+        let png = image.png_bytes().expect("png");
+        assert!(png.starts_with(&[137, 80, 78, 71, 13, 10, 26, 10]));
+        let decoded = image::load_from_memory(&png).expect("decode");
+        assert_eq!(decoded.width(), 2);
+        assert_eq!(decoded.height(), 1);
+        let uri = image.data_uri().expect("uri");
+        assert!(uri.starts_with("data:image/png;base64,"));
+        assert!(uri.len() > "data:image/png;base64,".len());
+    }
+
+    #[test]
+    fn image_view_is_previewable() {
+        let image = ClipboardImage::new(1, 1, vec![0, 0, 0, 255]).expect("rgba");
+        let view = ClipboardView::Image(image);
+        assert!(view.is_previewable());
+        assert!(view.image().is_some());
+        assert!(view.text().is_none());
+        assert_eq!(view.label(), "img");
+        assert_eq!(view.type_mark(), Some("img"));
+        assert!(!ClipboardView::Empty.is_previewable());
+        assert!(!ClipboardView::NoText.is_previewable());
+        assert!(ClipboardView::Text("hello".into()).is_previewable());
+    }
 
     #[test]
     fn one_line_uses_symbol_for_plain_text() {

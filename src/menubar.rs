@@ -113,8 +113,13 @@ impl App {
     }
 
     fn show_current(&mut self) {
-        if let Some(text) = self.current_text() {
-            self.open_preview(&text);
+        let view = ClipboardView::from_os();
+        if let Some(image) = view.image() {
+            self.open_image_preview(image);
+            return;
+        }
+        if let Some(text) = view.text() {
+            self.open_preview(text);
         }
     }
 
@@ -127,6 +132,13 @@ impl App {
     fn open_preview(&mut self, text: &str) {
         let kind = format::detect(text);
         if let Err(e) = preview::show(text, kind) {
+            eprintln!("preview failed: {e}");
+        }
+        self.rebuild_menu(true);
+    }
+
+    fn open_image_preview(&mut self, image: &clipboard::ClipboardImage) {
+        if let Err(e) = preview::show_image(image) {
             eprintln!("preview failed: {e}");
         }
         self.rebuild_menu(true);
@@ -149,7 +161,11 @@ impl App {
             .into_iter()
             .filter(|(index, _)| self.history.get(*index) != current_text)
             .count();
-        let kind = current_text.map(format::detect);
+        let kind = match &view {
+            ClipboardView::Text(text) => Some(format::detect(text)),
+            ClipboardView::Image(_) => Some(format::FormatKind::Image),
+            ClipboardView::Empty | ClipboardView::NoText => None,
+        };
         if !force
             && label == self.last_label
             && history_len == self.history_len
@@ -184,8 +200,8 @@ impl App {
         let current = clipboard_entry_item(
             "current",
             format!("• {label}"),
-            view.text().is_some(),
-            view.text(),
+            view.is_previewable(),
+            view.type_mark(),
             true,
         );
         let _ = menu.append(&current);
@@ -205,7 +221,7 @@ impl App {
                     &format!("hist_{index}"),
                     item_label,
                     true,
-                    self.history.get(index),
+                    self.history.get(index).map(clipboard::menu_mark),
                     false,
                 );
                 let _ = menu.append(&item);
@@ -224,7 +240,7 @@ impl App {
         let _ = menu.append(&IconMenuItem::with_id_and_native_icon(
             "clear_clipboard",
             "Clear clipboard",
-            view.text().is_some(),
+            view.is_previewable(),
             Some(NativeIcon::TrashEmpty),
             None,
         ));
@@ -292,19 +308,19 @@ fn clipboard_entry_item(
     id: &str,
     title: String,
     enabled: bool,
-    text: Option<&str>,
+    mark: Option<&str>,
     current: bool,
 ) -> MenuItem {
     let item = MenuItem::with_id(id, &title, enabled, None);
-    style_entry_item(&item, text, current);
+    style_entry_item(&item, mark, current);
     item
 }
 
-fn style_entry_item(item: &MenuItem, text: Option<&str>, current: bool) {
-    let Some(text) = text else {
+fn style_entry_item(item: &MenuItem, mark: Option<&str>, current: bool) {
+    let Some(mark) = mark else {
         return;
     };
-    let mark = clipboard::menu_mark(text).to_string();
+    let mark = mark.to_string();
     if current {
         item.set_styled_text(vec![
             ("• ".to_string(), TextStyle::Default),

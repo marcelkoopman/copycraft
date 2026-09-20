@@ -2,12 +2,38 @@ fn apply_preview(body: &str) {
     apply_preview_with_kind(body, format::detect(body));
 }
 
-fn window_title(kind: FormatKind, mode: ViewMode) -> &'static str {
+fn window_title(kind: FormatKind, mode: ViewMode) -> String {
+    if kind == FormatKind::Image {
+        if mode == ViewMode::Convert {
+            return "Data URI".to_string();
+        }
+        return SOURCE_IMAGE.with(|slot| {
+            slot.borrow()
+                .as_ref()
+                .map(|image| format!("Image {}×{}", image.width, image.height))
+                .unwrap_or_else(|| "Image".to_string())
+        });
+    }
     if mode == ViewMode::Format {
         kind.preview_heading()
     } else {
         kind.source_heading()
     }
+    .to_string()
+}
+
+fn apply_image_preview() {
+    PREVIEW_KIND.with(|slot| slot.replace(FormatKind::Image));
+    PREVIEW_TEXT.with(|slot| slot.replace(String::new()));
+    let mode = VIEW_MODE.with(|slot| *slot.borrow());
+    WINDOW.with(|slot| {
+        if let Some(window) = slot.borrow().as_ref() {
+            window.setTitle(&NSString::from_str(&window_title(FormatKind::Image, mode)));
+        }
+    });
+    fade_visible_surface(0.0, 0.16);
+    schedule_fade_in();
+    flash_button(&COPY_BUTTON, "Copied  \u{2713}", "Copy", copy_flash_color(), false);
 }
 
 fn apply_preview_with_kind(body: &str, kind: FormatKind) {
@@ -16,10 +42,15 @@ fn apply_preview_with_kind(body: &str, kind: FormatKind) {
     let mode = VIEW_MODE.with(|slot| *slot.borrow());
     WINDOW.with(|slot| {
         if let Some(window) = slot.borrow().as_ref() {
-            window.setTitle(&NSString::from_str(window_title(kind, mode)));
+            window.setTitle(&NSString::from_str(&window_title(kind, mode)));
         }
     });
-    fade_scroll(0.0, 0.16);
+    fade_visible_surface(0.0, 0.16);
+    schedule_fade_in();
+    flash_button(&COPY_BUTTON, "Copied  \u{2713}", "Copy", copy_flash_color(), false);
+}
+
+fn schedule_fade_in() {
     TARGET.with(|slot| {
         if let Some(target) = slot.borrow().as_ref() {
             unsafe {
@@ -32,10 +63,30 @@ fn apply_preview_with_kind(body: &str, kind: FormatKind) {
             }
         }
     });
-    flash_button(&COPY_BUTTON, "Copied  \u{2713}", "Copy", copy_flash_color(), false);
+}
+
+fn source_is_image() -> bool {
+    SOURCE_KIND.with(|slot| *slot.borrow() == FormatKind::Image)
+        && SOURCE_IMAGE.with(|slot| slot.borrow().is_some())
+}
+
+fn showing_original_image() -> bool {
+    VIEW_MODE.with(|slot| *slot.borrow() == ViewMode::Original) && source_is_image()
 }
 
 fn reveal_preview_body() {
+    if showing_original_image() {
+        present_image_body();
+        fade_image(1.0, 0.28);
+        return;
+    }
+    present_text_body();
+    fade_scroll(1.0, 0.28);
+}
+
+fn present_text_body() {
+    set_image_hidden(true);
+    set_view_hidden(&SCROLL, false);
     let kind = PREVIEW_KIND.with(|slot| *slot.borrow());
     let body = PREVIEW_TEXT.with(|slot| slot.borrow().clone());
     TEXT.with(|slot| {
@@ -43,7 +94,26 @@ fn reveal_preview_body() {
             set_body(text, &body, kind);
         }
     });
-    fade_scroll(1.0, 0.28);
+}
+
+fn present_image_body() {
+    set_view_hidden(&SCROLL, true);
+    set_image_hidden(false);
+    let nsimage = SOURCE_IMAGE.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .and_then(nsimage_from_clipboard)
+    });
+    IMAGE_VIEW.with(|slot| {
+        if let Some(view) = slot.borrow().as_ref() {
+            view.setImage(nsimage.as_deref());
+        }
+    });
+}
+
+fn fade_visible_surface(alpha: f64, duration: f64) {
+    fade_scroll(alpha, duration);
+    fade_image(alpha, duration);
 }
 
 fn fade_scroll(alpha: f64, duration: f64) {
@@ -57,6 +127,39 @@ fn fade_scroll(alpha: f64, duration: f64) {
         NSAnimationContext::currentContext().setDuration(duration);
         scroll.animator().setAlphaValue(alpha);
         NSAnimationContext::endGrouping();
+    });
+}
+
+fn fade_image(alpha: f64, duration: f64) {
+    IMAGE_VIEW.with(|slot| {
+        let borrowed = slot.borrow();
+        let Some(view) = borrowed.as_ref() else {
+            return;
+        };
+        view.setWantsLayer(true);
+        NSAnimationContext::beginGrouping();
+        NSAnimationContext::currentContext().setDuration(duration);
+        view.animator().setAlphaValue(alpha);
+        NSAnimationContext::endGrouping();
+    });
+}
+
+fn set_view_hidden(
+    slot: &'static std::thread::LocalKey<RefCell<Option<Retained<NSScrollView>>>>,
+    hidden: bool,
+) {
+    slot.with(|cell| {
+        if let Some(view) = cell.borrow().as_ref() {
+            view.setHidden(hidden);
+        }
+    });
+}
+
+fn set_image_hidden(hidden: bool) {
+    IMAGE_VIEW.with(|cell| {
+        if let Some(view) = cell.borrow().as_ref() {
+            view.setHidden(hidden);
+        }
     });
 }
 
@@ -135,8 +238,9 @@ const TOOLBAR_H: f64 = 36.0;
 
 fn apply_toolbar_for_kind(kind: FormatKind) {
     let source = SOURCE_TEXT.with(|slot| slot.borrow().clone());
-    let show_format = toolbar_visibility::shows_format(&source);
-    let show_convert = toolbar_visibility::shows_convert(&source);
+    let show_format = kind != FormatKind::Image && toolbar_visibility::shows_format(&source);
+    let show_convert =
+        kind == FormatKind::Image || toolbar_visibility::shows_convert(&source);
     let show_redact = toolbar_visibility::shows_redact(kind, &source);
     let show_df =
         toolbar_visibility::shows_dataframe(kind) || dataframe::try_format(&source).is_some();
@@ -266,7 +370,14 @@ fn save_preview_to_file() -> bool {
     let Some(mtm) = MainThreadMarker::new() else {
         return false;
     };
-    let kind = PREVIEW_KIND.with(|slot| *slot.borrow());
+    if showing_original_image() {
+        return save_image_png(mtm);
+    }
+    let kind = if source_is_image() {
+        FormatKind::Plain
+    } else {
+        PREVIEW_KIND.with(|slot| *slot.borrow())
+    };
     let body = save_payload(kind);
     if body.is_empty() {
         return false;
@@ -292,4 +403,36 @@ fn save_preview_to_file() -> bool {
         return false;
     };
     std::fs::write(path.to_string(), body.as_bytes()).is_ok()
+}
+
+fn save_image_png(mtm: MainThreadMarker) -> bool {
+    let png = SOURCE_IMAGE.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .and_then(|image| image.png_bytes().ok())
+    });
+    let Some(png) = png else {
+        return false;
+    };
+    let kind = FormatKind::Image;
+    let panel = NSSavePanel::savePanel(mtm);
+    panel.setCanCreateDirectories(true);
+    panel.setExtensionHidden(false);
+    panel.setNameFieldStringValue(&NSString::from_str(&kind.suggested_filename()));
+    panel.setTitle(Some(&NSString::from_str("Save clipboard")));
+    let ext = NSString::from_str(kind.suggested_extension());
+    let types = NSArray::from_slice(&[&*ext]);
+    #[allow(deprecated)]
+    panel.setAllowedFileTypes(Some(&types));
+
+    if panel.runModal() != NSModalResponseOK {
+        return false;
+    }
+    let Some(url) = panel.URL() else {
+        return false;
+    };
+    let Some(path) = url.path() else {
+        return false;
+    };
+    std::fs::write(path.to_string(), png).is_ok()
 }

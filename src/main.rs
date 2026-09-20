@@ -14,6 +14,8 @@ mod toolbar_visibility;
 mod transform;
 
 #[cfg(target_os = "macos")]
+mod macos_preview_image;
+#[cfg(target_os = "macos")]
 mod macos_preview_text;
 #[cfg(target_os = "macos")]
 mod macos_window;

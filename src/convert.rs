@@ -11,7 +11,9 @@ pub fn try_convert(text: &str) -> Option<String> {
         // Flat YAML mappings are detected as text so they are not pretty-printed
         // as YAML (Dutch labeled records). Convert still maps them to JSON.
         FormatKind::Text | FormatKind::Plain => crate::transform::yaml_to_json(text)?,
-        FormatKind::Rust | FormatKind::Java | FormatKind::Url => return None,
+        FormatKind::Rust | FormatKind::Java | FormatKind::Url | FormatKind::Image => {
+            return None;
+        }
     };
     if converted == text {
         None
