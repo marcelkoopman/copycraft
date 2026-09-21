@@ -4,7 +4,7 @@ impl FormatKind {
     }
 
     pub fn shows_dataframe(self) -> bool {
-        matches!(self, Self::Json | Self::Xml | Self::Dataframe)
+        matches!(self, Self::Json | Self::Dataframe)
     }
 }
 
@@ -27,8 +27,8 @@ mod toolbar_visibility_tests {
     }
 
     #[test]
-    fn xml_and_tables_keep_dataframe() {
-        assert!(FormatKind::Xml.shows_dataframe());
+    fn xml_hides_dataframe_tables_keep_it() {
+        assert!(!FormatKind::Xml.shows_dataframe());
         assert!(!FormatKind::Xml.shows_redact());
         assert!(FormatKind::Dataframe.shows_dataframe());
         assert!(FormatKind::Dataframe.shows_redact());

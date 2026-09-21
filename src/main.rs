@@ -13,6 +13,7 @@ mod preview;
 mod redact;
 mod toolbar_visibility;
 mod transform;
+mod validate;
 
 #[cfg(target_os = "macos")]
 mod macos_pasteboard;

@@ -97,6 +97,7 @@ fn looks_like_key_value_blob(text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::try_format;
+    use polars::prelude::{ParquetReader, SerReader};
 
     #[test]
     fn formats_semicolon_csv_with_trailing_delimiters() {
@@ -206,15 +207,30 @@ Id;Naam;Salaris
     }
 
     #[test]
-    fn formats_simple_xml_rows() {
+    fn rejects_xml_as_dataframe() {
         let src = r#"
 <root>
   <person><name>Jan</name><salary>3450</salary></person>
   <person><name>Anja</name><salary>2900</salary></person>
 </root>"#;
-        let out = try_format(src).expect("df");
-        assert!(out.contains("name"));
-        assert!(out.contains("Jan"));
-        assert!(out.contains("3450"));
+        assert!(try_format(src).is_none());
+        assert!(super::try_parquet_bytes(src).is_none());
+    }
+
+    #[test]
+    fn parquet_roundtrip_keeps_rows() {
+        for src in [
+            "name,age\nalice,30\nbob,40",
+            r#"[{"name":"alice","age":30},{"name":"bob","age":40}]"#,
+        ] {
+            let bytes = super::try_parquet_bytes(src).expect(src);
+            assert!(bytes.starts_with(b"PAR1"), "{src}");
+            assert!(bytes.ends_with(b"PAR1"), "{src}");
+            let df = ParquetReader::new(std::io::Cursor::new(bytes))
+                .finish()
+                .expect(src);
+            assert_eq!(df.height(), 2, "{src}");
+            assert_eq!(df.width(), 2, "{src}");
+        }
     }
 }

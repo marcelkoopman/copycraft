@@ -32,6 +32,7 @@ use crate::macos_preview_text::{configure_scrolling_text, editor_font, set_body}
 use crate::macos_vision;
 use crate::redact;
 use crate::toolbar_visibility;
+use crate::validate;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ViewMode {
@@ -42,6 +43,7 @@ enum ViewMode {
     Compress,
     Redact,
     Dataframe,
+    Validate,
     Info,
     Ocr,
     Qr,

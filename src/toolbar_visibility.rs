@@ -18,12 +18,15 @@ pub fn shows_redact(kind: FormatKind, source: &str) -> bool {
 pub fn shows_dataframe(kind: FormatKind) -> bool {
     matches!(
         kind,
-        FormatKind::Json
-            | FormatKind::Xml
-            | FormatKind::Csv
-            | FormatKind::Tsv
-            | FormatKind::Dataframe
+        FormatKind::Json | FormatKind::Csv | FormatKind::Tsv | FormatKind::Dataframe
     )
+}
+
+/// Dataframe is hidden for XML even when the text also parses as a table.
+pub fn shows_dataframe_button(kind: FormatKind, source: &str) -> bool {
+    kind != FormatKind::Xml
+        && !crate::format::looks_like_xml(source)
+        && (shows_dataframe(kind) || crate::dataframe::try_format(source).is_some())
 }
 
 pub fn shows_compress(kind: FormatKind) -> bool {
@@ -46,10 +49,15 @@ pub fn shows_convert(source: &str) -> bool {
     crate::convert::try_convert(source).is_some()
 }
 
+pub fn shows_validate(source: &str) -> bool {
+    crate::validate::check(source).is_some()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        shows_compress, shows_convert, shows_dataframe, shows_decode, shows_format, shows_redact,
+        shows_compress, shows_convert, shows_dataframe, shows_dataframe_button, shows_decode,
+        shows_format, shows_redact, shows_validate,
     };
     use crate::format::FormatKind;
 
@@ -86,12 +94,23 @@ mod tests {
     }
 
     #[test]
-    fn xml_dataframe_without_redact() {
+    fn xml_hides_dataframe_and_redact() {
         assert!(!shows_redact(
             FormatKind::Xml,
             "<root><email>jan.devries@email.nl</email></root>"
         ));
-        assert!(shows_dataframe(FormatKind::Xml));
+        assert!(!shows_dataframe(FormatKind::Xml));
+        let tabular = "\
+<root>
+  <person><name>Jan</name><salary>3450</salary></person>
+  <person><name>Anja</name><salary>2900</salary></person>
+</root>";
+        assert!(!shows_dataframe_button(FormatKind::Xml, tabular));
+        assert!(!shows_dataframe_button(FormatKind::Csv, tabular));
+        assert!(shows_dataframe_button(
+            FormatKind::Csv,
+            "name,age\nalice,30\nbob,40"
+        ));
         assert!(!shows_compress(FormatKind::Xml));
         assert!(!shows_decode(FormatKind::Xml));
     }
@@ -195,5 +214,19 @@ mod tests {
         ));
         assert!(!shows_format(""));
         assert!(!shows_convert(""));
+        assert!(!shows_validate(""));
+    }
+
+    #[test]
+    fn validate_shows_for_json_and_xml_only() {
+        assert!(shows_validate(r#"{"name":"copycraft"}"#));
+        assert!(shows_validate("{\n  \"name\": \"copycraft\"\n}"));
+        assert!(shows_validate(r#"{"name":"copycraft",}"#));
+        assert!(shows_validate("<root><item/></root>"));
+        assert!(shows_validate("<root><item></root>"));
+        assert!(!shows_validate("hello world"));
+        assert!(!shows_validate("fn main() {}"));
+        assert!(!shows_validate("name,age\nalice,30\nbob,40"));
+        assert!(!shows_validate("name: copycraft\ncount: 2\n"));
     }
 }
