@@ -10,6 +10,7 @@ pub fn show(source: &str, kind: FormatKind) -> Result<(), String> {
     PREVIEW_KIND.with(|slot| slot.replace(kind));
     SOURCE_KIND.with(|slot| slot.replace(kind));
     VIEW_MODE.with(|slot| slot.replace(mode));
+    clear_validate_mark();
     let title = window_title(kind, mode);
     activate_app(mtm);
     ensure_preview_window(mtm, &title);
@@ -59,6 +60,7 @@ fn begin_image_window() -> Result<(), String> {
     PREVIEW_KIND.with(|slot| slot.replace(kind));
     SOURCE_KIND.with(|slot| slot.replace(kind));
     VIEW_MODE.with(|slot| slot.replace(mode));
+    clear_validate_mark();
     activate_app(mtm);
     ensure_preview_window(mtm, "Image");
     present_image_body();

@@ -1,10 +1,14 @@
+/// `ok` colors the Validate button. The preview text is left unchanged.
 pub struct Report {
+    #[cfg_attr(not(test), allow(dead_code))]
     pub language: &'static str,
     pub ok: bool,
+    #[cfg_attr(not(test), allow(dead_code))]
     pub detail: String,
 }
 
 impl Report {
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn summary(&self) -> String {
         if self.ok {
             format!("Valid {}", self.language)

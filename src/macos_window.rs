@@ -43,10 +43,17 @@ enum ViewMode {
     Compress,
     Redact,
     Dataframe,
-    Validate,
     Info,
     Ocr,
     Qr,
+}
+
+/// Result shown on the Validate button. The preview text stays unchanged.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ValidateMark {
+    Idle,
+    Valid,
+    Invalid,
 }
 
 include!("macos_window_state.rs");

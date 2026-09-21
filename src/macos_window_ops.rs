@@ -9,7 +9,6 @@ fn window_title(kind: FormatKind, mode: ViewMode) -> String {
             ViewMode::Compress => "JPEG".to_string(),
             ViewMode::Ocr => "Text".to_string(),
             ViewMode::Qr => "QR".to_string(),
-            ViewMode::Validate => "Validate".to_string(),
             _ => SOURCE_IMAGE.with(|slot| {
                 slot.borrow()
                     .as_ref()
@@ -17,16 +16,6 @@ fn window_title(kind: FormatKind, mode: ViewMode) -> String {
                     .unwrap_or_else(|| "Image".to_string())
             }),
         };
-    }
-    if mode == ViewMode::Validate {
-        return PREVIEW_TEXT.with(|slot| {
-            slot.borrow()
-                .lines()
-                .next()
-                .filter(|line| !line.is_empty())
-                .unwrap_or("Validate")
-                .to_string()
-        });
     }
     if mode == ViewMode::Format {
         kind.preview_heading()
@@ -378,12 +367,7 @@ fn paint_mode_buttons() {
         dataframe_flash_color(),
         mode == ViewMode::Dataframe,
     );
-    paint_mode_button(
-        &VALIDATE_BUTTON,
-        "Validate",
-        validate_flash_color(),
-        mode == ViewMode::Validate,
-    );
+    paint_validate_button();
     paint_mode_button(
         &INFO_BUTTON,
         "Info",
@@ -397,6 +381,26 @@ fn paint_mode_buttons() {
         mode == ViewMode::Ocr,
     );
     paint_mode_button(&QR_BUTTON, "QR", qr_flash_color(), mode == ViewMode::Qr);
+}
+
+fn clear_validate_mark() {
+    VALIDATE_MARK.with(|slot| slot.set(ValidateMark::Idle));
+}
+
+fn paint_validate_button() {
+    let mark = VALIDATE_MARK.with(|slot| slot.get());
+    let color = match mark {
+        ValidateMark::Valid => validate_flash_color(),
+        ValidateMark::Invalid => error_flash_color(),
+        ValidateMark::Idle => idle_button_color(),
+    };
+    VALIDATE_BUTTON.with(|cell| {
+        let borrowed = cell.borrow();
+        let Some(button) = borrowed.as_ref() else {
+            return;
+        };
+        style_title_button(button, "Validate", &color);
+    });
 }
 
 fn paint_mode_button(
@@ -449,13 +453,6 @@ fn apply_toolbar_for_kind(kind: FormatKind) {
     if !show_convert {
         VIEW_MODE.with(|slot| {
             if *slot.borrow() == ViewMode::Convert {
-                slot.replace(ViewMode::Original);
-            }
-        });
-    }
-    if !show_validate {
-        VIEW_MODE.with(|slot| {
-            if *slot.borrow() == ViewMode::Validate {
                 slot.replace(ViewMode::Original);
             }
         });

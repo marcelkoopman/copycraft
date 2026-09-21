@@ -29,6 +29,7 @@ thread_local! {
     static PREVIEW_KIND: RefCell<FormatKind> = const { RefCell::new(FormatKind::Plain) };
     static SOURCE_KIND: RefCell<FormatKind> = const { RefCell::new(FormatKind::Plain) };
     static VIEW_MODE: RefCell<ViewMode> = const { RefCell::new(ViewMode::Format) };
+    static VALIDATE_MARK: Cell<ValidateMark> = const { Cell::new(ValidateMark::Idle) };
 }
 
 define_class!(
@@ -225,6 +226,7 @@ define_class!(
         fn validate_clicked(&self, _sender: Option<&AnyObject>) {
             let report = SOURCE_TEXT.with(|src| validate::check(&src.borrow()));
             let Some(report) = report else {
+                clear_validate_mark();
                 flash_button(
                     &VALIDATE_BUTTON,
                     "Failed",
@@ -235,20 +237,14 @@ define_class!(
                 reset_later(self, sel!(resetValidateLabel:));
                 return;
             };
-            select_mode(ViewMode::Validate);
-            apply_preview_with_kind(&report.summary(), FormatKind::Plain);
-            flash_button(
-                &VALIDATE_BUTTON,
-                if report.ok { "Valid" } else { "Invalid" },
-                "Validate",
-                if report.ok {
-                    validate_flash_color()
+            VALIDATE_MARK.with(|slot| {
+                slot.set(if report.ok {
+                    ValidateMark::Valid
                 } else {
-                    error_flash_color()
-                },
-                true,
-            );
-            reset_later(self, sel!(resetValidateLabel:));
+                    ValidateMark::Invalid
+                });
+            });
+            paint_mode_buttons();
         }
 
         #[unsafe(method(resetValidateLabel:))]
