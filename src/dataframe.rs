@@ -44,7 +44,7 @@ fn delimited_separator(text: &str) -> Option<u8> {
 
 fn parse(text: &str) -> Option<DataFrame> {
     let trimmed = text.trim();
-    if trimmed.is_empty() {
+    if trimmed.is_empty() || crate::format::looks_like_xml(trimmed) {
         return None;
     }
     try_csv(trimmed).or_else(|| try_json(trimmed))

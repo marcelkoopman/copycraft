@@ -410,8 +410,7 @@ fn apply_toolbar_for_kind(kind: FormatKind) {
     let show_format = !is_image && toolbar_visibility::shows_format(&source);
     let show_convert = !is_image && toolbar_visibility::shows_convert(&source);
     let show_redact = toolbar_visibility::shows_redact(kind, &source);
-    let show_df =
-        toolbar_visibility::shows_dataframe(kind) || dataframe::try_format(&source).is_some();
+    let show_df = toolbar_visibility::shows_dataframe_button(kind, &source);
     let show_compress = if is_image {
         IMAGE_JPEG.with(|slot| slot.borrow().is_some())
     } else {

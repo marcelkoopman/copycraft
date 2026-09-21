@@ -22,6 +22,13 @@ pub fn shows_dataframe(kind: FormatKind) -> bool {
     )
 }
 
+/// Dataframe is hidden for XML even when the text also parses as a table.
+pub fn shows_dataframe_button(kind: FormatKind, source: &str) -> bool {
+    kind != FormatKind::Xml
+        && !crate::format::looks_like_xml(source)
+        && (shows_dataframe(kind) || crate::dataframe::try_format(source).is_some())
+}
+
 pub fn shows_compress(kind: FormatKind) -> bool {
     matches!(
         kind,
@@ -45,7 +52,8 @@ pub fn shows_convert(source: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        shows_compress, shows_convert, shows_dataframe, shows_decode, shows_format, shows_redact,
+        shows_compress, shows_convert, shows_dataframe, shows_dataframe_button, shows_decode,
+        shows_format, shows_redact,
     };
     use crate::format::FormatKind;
 
@@ -88,6 +96,17 @@ mod tests {
             "<root><email>jan.devries@email.nl</email></root>"
         ));
         assert!(!shows_dataframe(FormatKind::Xml));
+        let tabular = "\
+<root>
+  <person><name>Jan</name><salary>3450</salary></person>
+  <person><name>Anja</name><salary>2900</salary></person>
+</root>";
+        assert!(!shows_dataframe_button(FormatKind::Xml, tabular));
+        assert!(!shows_dataframe_button(FormatKind::Csv, tabular));
+        assert!(shows_dataframe_button(
+            FormatKind::Csv,
+            "name,age\nalice,30\nbob,40"
+        ));
         assert!(!shows_compress(FormatKind::Xml));
         assert!(!shows_decode(FormatKind::Xml));
     }
