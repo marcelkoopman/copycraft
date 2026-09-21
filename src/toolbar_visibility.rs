@@ -18,11 +18,7 @@ pub fn shows_redact(kind: FormatKind, source: &str) -> bool {
 pub fn shows_dataframe(kind: FormatKind) -> bool {
     matches!(
         kind,
-        FormatKind::Json
-            | FormatKind::Xml
-            | FormatKind::Csv
-            | FormatKind::Tsv
-            | FormatKind::Dataframe
+        FormatKind::Json | FormatKind::Csv | FormatKind::Tsv | FormatKind::Dataframe
     )
 }
 
@@ -86,12 +82,12 @@ mod tests {
     }
 
     #[test]
-    fn xml_dataframe_without_redact() {
+    fn xml_hides_dataframe_and_redact() {
         assert!(!shows_redact(
             FormatKind::Xml,
             "<root><email>jan.devries@email.nl</email></root>"
         ));
-        assert!(shows_dataframe(FormatKind::Xml));
+        assert!(!shows_dataframe(FormatKind::Xml));
         assert!(!shows_compress(FormatKind::Xml));
         assert!(!shows_decode(FormatKind::Xml));
     }

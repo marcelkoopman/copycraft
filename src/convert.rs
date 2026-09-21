@@ -5,9 +5,8 @@ pub fn try_convert(text: &str) -> Option<String> {
         FormatKind::Json => crate::transform::json_to_yaml(text)?,
         FormatKind::Yaml => crate::transform::yaml_to_json(text)?,
         FormatKind::Csv => crate::dataframe::try_json_text(text)?,
-        FormatKind::Tsv | FormatKind::Xml | FormatKind::Dataframe => {
-            crate::dataframe::try_csv_text(text)?
-        }
+        FormatKind::Xml => crate::dataframe::try_xml_csv_text(text)?,
+        FormatKind::Tsv | FormatKind::Dataframe => crate::dataframe::try_csv_text(text)?,
         // Flat YAML mappings are detected as text so they are not pretty-printed
         // as YAML (Dutch labeled records). Convert still maps them to JSON.
         FormatKind::Text | FormatKind::Plain => crate::transform::yaml_to_json(text)?,

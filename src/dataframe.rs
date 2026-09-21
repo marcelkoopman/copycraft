@@ -10,6 +10,16 @@ pub fn try_csv_text(text: &str) -> Option<String> {
     parse(text).and_then(write_csv)
 }
 
+pub fn try_parquet_bytes(text: &str) -> Option<Vec<u8>> {
+    let mut df = parse(text)?;
+    write_parquet(&mut df)
+}
+
+/// Tabular XML can still become CSV. It is not a dataframe.
+pub fn try_xml_csv_text(text: &str) -> Option<String> {
+    try_xml(text.trim()).and_then(write_csv)
+}
+
 pub fn try_json_text(text: &str) -> Option<String> {
     parse(text).and_then(write_json)
 }
@@ -37,9 +47,16 @@ fn parse(text: &str) -> Option<DataFrame> {
     if trimmed.is_empty() {
         return None;
     }
-    try_csv(trimmed)
-        .or_else(|| try_json(trimmed))
-        .or_else(|| try_xml(trimmed))
+    try_csv(trimmed).or_else(|| try_json(trimmed))
+}
+
+fn write_parquet(df: &mut DataFrame) -> Option<Vec<u8>> {
+    if df.width() == 0 || df.height() == 0 {
+        return None;
+    }
+    let mut buf = Cursor::new(Vec::new());
+    ParquetWriter::new(&mut buf).finish(df).ok()?;
+    Some(buf.into_inner())
 }
 
 fn write_csv(mut df: DataFrame) -> Option<String> {

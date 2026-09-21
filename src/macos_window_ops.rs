@@ -548,14 +548,17 @@ fn make_toolbar_button(
     button
 }
 
-fn save_payload(kind: FormatKind) -> String {
+fn save_payload(kind: FormatKind) -> Option<Vec<u8>> {
     if kind == FormatKind::Dataframe {
         let source = SOURCE_TEXT.with(|slot| slot.borrow().clone());
-        if let Some(csv) = dataframe::try_csv_text(&source) {
-            return csv;
-        }
+        return dataframe::try_parquet_bytes(&source);
     }
-    PREVIEW_TEXT.with(|slot| slot.borrow().clone())
+    let body = PREVIEW_TEXT.with(|slot| slot.borrow().clone());
+    if body.is_empty() {
+        None
+    } else {
+        Some(body.into_bytes())
+    }
 }
 
 fn save_preview_to_file() -> bool {
@@ -573,10 +576,9 @@ fn save_preview_to_file() -> bool {
     } else {
         PREVIEW_KIND.with(|slot| *slot.borrow())
     };
-    let body = save_payload(kind);
-    if body.is_empty() {
+    let Some(body) = save_payload(kind) else {
         return false;
-    }
+    };
 
     let panel = NSSavePanel::savePanel(mtm);
     panel.setCanCreateDirectories(true);
@@ -597,7 +599,7 @@ fn save_preview_to_file() -> bool {
     let Some(path) = url.path() else {
         return false;
     };
-    std::fs::write(path.to_string(), body.as_bytes()).is_ok()
+    std::fs::write(path.to_string(), body).is_ok()
 }
 
 fn png_bytes_for_save() -> Option<Vec<u8>> {
