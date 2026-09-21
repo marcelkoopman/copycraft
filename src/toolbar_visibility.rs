@@ -18,14 +18,16 @@ pub fn shows_redact(kind: FormatKind, source: &str) -> bool {
 pub fn shows_dataframe(kind: FormatKind) -> bool {
     matches!(
         kind,
-        FormatKind::Json | FormatKind::Csv | FormatKind::Tsv | FormatKind::Dataframe
+        FormatKind::Csv | FormatKind::Tsv | FormatKind::Dataframe
     )
 }
 
-/// Dataframe is hidden for XML even when the text also parses as a table.
+/// Dataframe is hidden for JSON and XML even when the text also parses as a table.
 pub fn shows_dataframe_button(kind: FormatKind, source: &str) -> bool {
     kind != FormatKind::Xml
+        && kind != FormatKind::Json
         && !crate::format::looks_like_xml(source)
+        && crate::format::detect(source) != FormatKind::Json
         && (shows_dataframe(kind) || crate::dataframe::try_format(source).is_some())
 }
 
@@ -46,18 +48,15 @@ pub fn shows_decode(kind: FormatKind) -> bool {
 }
 
 pub fn shows_convert(source: &str) -> bool {
-    crate::convert::try_convert(source).is_some()
-}
-
-pub fn shows_validate(source: &str) -> bool {
-    crate::validate::check(source).is_some()
+    crate::format::detect(source) != FormatKind::Json
+        && crate::convert::try_convert(source).is_some()
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
         shows_compress, shows_convert, shows_dataframe, shows_dataframe_button, shows_decode,
-        shows_format, shows_redact, shows_validate,
+        shows_format, shows_redact,
     };
     use crate::format::FormatKind;
 
@@ -83,12 +82,15 @@ mod tests {
     }
 
     #[test]
-    fn json_hides_redact_keeps_dataframe() {
-        assert!(!shows_redact(
-            FormatKind::Json,
-            r#"{"email":"jan.devries@email.nl"}"#
-        ));
-        assert!(shows_dataframe(FormatKind::Json));
+    fn json_hides_redact_convert_and_dataframe() {
+        let object = r#"{"email":"jan.devries@email.nl"}"#;
+        let table = r#"[{"name":"Jan","age":30},{"name":"Anja","age":40}]"#;
+        assert!(!shows_redact(FormatKind::Json, object));
+        assert!(!shows_dataframe(FormatKind::Json));
+        assert!(!shows_dataframe_button(FormatKind::Json, table));
+        assert!(!shows_dataframe_button(FormatKind::Csv, table));
+        assert!(!shows_convert(object));
+        assert!(!shows_convert("{\n  \"name\": \"copycraft\"\n}"));
         assert!(!shows_compress(FormatKind::Json));
         assert!(!shows_decode(FormatKind::Json));
     }
@@ -177,10 +179,9 @@ mod tests {
     }
 
     #[test]
-    fn convert_shows_for_json_yaml_and_tables() {
-        assert!(shows_convert(r#"{"name":"copycraft"}"#));
+    fn convert_shows_for_yaml_and_tables() {
         let pretty = "{\n  \"name\": \"copycraft\"\n}";
-        assert!(shows_convert(pretty));
+        assert!(!shows_convert(pretty));
         assert!(!shows_format(pretty));
         assert!(shows_convert("name: copycraft\nitems:\n  - one\n"));
         assert!(shows_convert("name: copycraft\ncount: 2\n"));
@@ -214,19 +215,5 @@ mod tests {
         ));
         assert!(!shows_format(""));
         assert!(!shows_convert(""));
-        assert!(!shows_validate(""));
-    }
-
-    #[test]
-    fn validate_shows_for_json_and_xml_only() {
-        assert!(shows_validate(r#"{"name":"copycraft"}"#));
-        assert!(shows_validate("{\n  \"name\": \"copycraft\"\n}"));
-        assert!(shows_validate(r#"{"name":"copycraft",}"#));
-        assert!(shows_validate("<root><item/></root>"));
-        assert!(shows_validate("<root><item></root>"));
-        assert!(!shows_validate("hello world"));
-        assert!(!shows_validate("fn main() {}"));
-        assert!(!shows_validate("name,age\nalice,30\nbob,40"));
-        assert!(!shows_validate("name: copycraft\ncount: 2\n"));
     }
 }

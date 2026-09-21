@@ -4,7 +4,7 @@ impl FormatKind {
     }
 
     pub fn shows_dataframe(self) -> bool {
-        matches!(self, Self::Json | Self::Dataframe)
+        matches!(self, Self::Dataframe)
     }
 }
 
@@ -21,9 +21,9 @@ mod toolbar_visibility_tests {
     }
 
     #[test]
-    fn json_hides_redact_keeps_dataframe() {
+    fn json_hides_redact_and_dataframe() {
         assert!(!FormatKind::Json.shows_redact());
-        assert!(FormatKind::Json.shows_dataframe());
+        assert!(!FormatKind::Json.shows_dataframe());
     }
 
     #[test]

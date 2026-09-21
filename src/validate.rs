@@ -1,10 +1,23 @@
+/// Validation of clipboard JSON or XML. The preview text stays unchanged.
 pub struct Report {
     pub language: &'static str,
     pub ok: bool,
+    #[cfg_attr(not(test), allow(dead_code))]
     pub detail: String,
 }
 
+/// Title-bar label for JSON or XML. Other text has no validation title.
+pub fn title(text: &str) -> Option<String> {
+    let report = check(text)?;
+    Some(format!(
+        "{} {}",
+        if report.ok { "Valid" } else { "Invalid" },
+        report.language
+    ))
+}
+
 impl Report {
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn summary(&self) -> String {
         if self.ok {
             format!("Valid {}", self.language)
@@ -473,13 +486,17 @@ fn is_name_char(ch: char) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::check;
+    use super::{check, title};
 
     #[test]
     fn accepts_json_object_and_array() {
         let object = check(r#"{"name":"copycraft","n":3}"#).expect("json");
         assert!(object.ok);
         assert_eq!(object.summary(), "Valid JSON");
+        assert_eq!(
+            title(r#"{"name":"copycraft","n":3}"#).as_deref(),
+            Some("Valid JSON")
+        );
         let array = check("[1, 2, {\"ok\": true}]").expect("array");
         assert!(array.ok);
     }
@@ -489,6 +506,10 @@ mod tests {
         let report = check(r#"{"name":"copycraft",}"#).expect("json");
         assert!(!report.ok);
         assert!(report.summary().starts_with("Invalid JSON"));
+        assert_eq!(
+            title(r#"{"name":"copycraft",}"#).as_deref(),
+            Some("Invalid JSON")
+        );
         assert!(report.detail.contains("trailing comma") || report.detail.contains("comma"));
     }
 
@@ -504,6 +525,26 @@ mod tests {
         let report = check(src).expect("xml");
         assert!(report.ok, "{}", report.detail);
         assert_eq!(report.summary(), "Valid XML");
+        assert_eq!(title(src).as_deref(), Some("Valid XML"));
+    }
+
+    #[test]
+    fn title_is_only_for_json_and_xml() {
+        assert_eq!(
+            title(r#"{"name":"copycraft"}"#).as_deref(),
+            Some("Valid JSON")
+        );
+        assert_eq!(
+            title("{\n  \"name\": \"copycraft\"\n}").as_deref(),
+            Some("Valid JSON")
+        );
+        assert_eq!(title("<root><item/></root>").as_deref(), Some("Valid XML"));
+        assert_eq!(title("<root><item></root>").as_deref(), Some("Invalid XML"));
+        assert_eq!(title(""), None);
+        assert_eq!(title("hello world"), None);
+        assert_eq!(title("fn main() {}"), None);
+        assert_eq!(title("name,age\nalice,30\nbob,40"), None);
+        assert_eq!(title("name: copycraft\ncount: 2\n"), None);
     }
 
     #[test]

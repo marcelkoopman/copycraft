@@ -9,7 +9,6 @@ fn window_title(kind: FormatKind, mode: ViewMode) -> String {
             ViewMode::Compress => "JPEG".to_string(),
             ViewMode::Ocr => "Text".to_string(),
             ViewMode::Qr => "QR".to_string(),
-            ViewMode::Validate => "Validate".to_string(),
             _ => SOURCE_IMAGE.with(|slot| {
                 slot.borrow()
                     .as_ref()
@@ -18,15 +17,10 @@ fn window_title(kind: FormatKind, mode: ViewMode) -> String {
             }),
         };
     }
-    if mode == ViewMode::Validate {
-        return PREVIEW_TEXT.with(|slot| {
-            slot.borrow()
-                .lines()
-                .next()
-                .filter(|line| !line.is_empty())
-                .unwrap_or("Validate")
-                .to_string()
-        });
+    if mode == ViewMode::Original
+        && let Some(title) = source_validation_title()
+    {
+        return title;
     }
     if mode == ViewMode::Format {
         kind.preview_heading()
@@ -34,6 +28,10 @@ fn window_title(kind: FormatKind, mode: ViewMode) -> String {
         kind.source_heading()
     }
     .to_string()
+}
+
+fn source_validation_title() -> Option<String> {
+    SOURCE_TEXT.with(|slot| crate::validate::title(&slot.borrow()))
 }
 
 fn apply_image_preview() {
@@ -379,12 +377,6 @@ fn paint_mode_buttons() {
         mode == ViewMode::Dataframe,
     );
     paint_mode_button(
-        &VALIDATE_BUTTON,
-        "Validate",
-        validate_flash_color(),
-        mode == ViewMode::Validate,
-    );
-    paint_mode_button(
         &INFO_BUTTON,
         "Info",
         info_flash_color(),
@@ -428,7 +420,6 @@ fn apply_toolbar_for_kind(kind: FormatKind) {
     let show_convert = !is_image && toolbar_visibility::shows_convert(&source);
     let show_redact = toolbar_visibility::shows_redact(kind, &source);
     let show_df = toolbar_visibility::shows_dataframe_button(kind, &source);
-    let show_validate = !is_image && toolbar_visibility::shows_validate(&source);
     let show_compress = if is_image {
         IMAGE_JPEG.with(|slot| slot.borrow().is_some())
     } else {
@@ -453,20 +444,12 @@ fn apply_toolbar_for_kind(kind: FormatKind) {
             }
         });
     }
-    if !show_validate {
-        VIEW_MODE.with(|slot| {
-            if *slot.borrow() == ViewMode::Validate {
-                slot.replace(ViewMode::Original);
-            }
-        });
-    }
     let show_original = show_format
         || show_convert
         || show_decode
         || show_compress
         || show_redact
         || show_df
-        || show_validate
         || show_info
         || show_ocr
         || show_qr;
@@ -475,7 +458,6 @@ fn apply_toolbar_for_kind(kind: FormatKind) {
     set_button_hidden(&CONVERT_BUTTON, !show_convert);
     set_button_hidden(&REDACT_BUTTON, !show_redact);
     set_button_hidden(&DATAFRAME_BUTTON, !show_df);
-    set_button_hidden(&VALIDATE_BUTTON, !show_validate);
     set_button_hidden(&COMPRESS_BUTTON, !show_compress);
     set_button_hidden(&DECODE_BUTTON, !show_decode);
     set_button_hidden(&INFO_BUTTON, !show_info);
@@ -490,10 +472,6 @@ fn apply_toolbar_for_kind(kind: FormatKind) {
     }
     if show_format {
         place_button(&FORMAT_BUTTON, x, y);
-        x += TOOLBAR_BTN_W + TOOLBAR_GAP;
-    }
-    if show_validate {
-        place_button(&VALIDATE_BUTTON, x, y);
         x += TOOLBAR_BTN_W + TOOLBAR_GAP;
     }
     if show_info {

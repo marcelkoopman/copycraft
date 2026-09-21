@@ -74,6 +74,8 @@ fn begin_image_window() -> Result<(), String> {
     Ok(())
 }
 
+const WINDOW_ALPHA: f64 = 0.94;
+
 fn activate_app(mtm: MainThreadMarker) {
     let app = NSApplication::sharedApplication(mtm);
     #[allow(deprecated)]
@@ -86,7 +88,7 @@ fn ensure_preview_window(mtm: MainThreadMarker, title: &str) {
         WINDOW.with(|slot| {
             if let Some(window) = slot.borrow().as_ref() {
                 window.setTitle(&NSString::from_str(title));
-                window.setAlphaValue(0.86);
+                window.setAlphaValue(WINDOW_ALPHA);
                 window.makeKeyAndOrderFront(None);
                 window.orderFrontRegardless();
             }
@@ -118,12 +120,13 @@ fn ensure_preview_window(mtm: MainThreadMarker, title: &str) {
     window.setOpaque(false);
     window.setHasShadow(true);
     window.setBackgroundColor(Some(&NSColor::clearColor()));
-    window.setAlphaValue(0.86);
+    window.setAlphaValue(WINDOW_ALPHA);
 
     let bounds = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(width, height));
     let frosted = NSVisualEffectView::initWithFrame(NSVisualEffectView::alloc(mtm), bounds);
-    frosted.setMaterial(NSVisualEffectMaterial::UnderWindowBackground);
+    frosted.setMaterial(NSVisualEffectMaterial::WindowBackground);
     frosted.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
+    frosted.setEmphasized(true);
     frosted.setState(NSVisualEffectState::Active);
     frosted.setAutoresizingMask(
         NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
@@ -155,14 +158,6 @@ fn ensure_preview_window(mtm: MainThreadMarker, title: &str) {
         false,
     );
     style_title_button(&format_button, "Format", &format_flash_color());
-    let validate_button = make_toolbar_button(
-        mtm,
-        NSRect::new(NSPoint::new(format_x, button_y), NSSize::new(button_w, button_h)),
-        &target,
-        sel!(validateClicked:),
-        false,
-    );
-    style_title_button(&validate_button, "Validate", &idle_button_color());
     let convert_button = make_toolbar_button(
         mtm,
         NSRect::new(NSPoint::new(format_x, button_y), NSSize::new(button_w, button_h)),
@@ -285,7 +280,6 @@ fn ensure_preview_window(mtm: MainThreadMarker, title: &str) {
     frosted.addSubview(&image_view);
     frosted.addSubview(&original_button);
     frosted.addSubview(&format_button);
-    frosted.addSubview(&validate_button);
     frosted.addSubview(&convert_button);
     frosted.addSubview(&decode_button);
     frosted.addSubview(&compress_button);
@@ -308,7 +302,6 @@ fn ensure_preview_window(mtm: MainThreadMarker, title: &str) {
     IMAGE_VIEW.with(|slot| slot.replace(Some(image_view)));
     ORIGINAL_BUTTON.with(|slot| slot.replace(Some(original_button)));
     FORMAT_BUTTON.with(|slot| slot.replace(Some(format_button)));
-    VALIDATE_BUTTON.with(|slot| slot.replace(Some(validate_button)));
     CONVERT_BUTTON.with(|slot| slot.replace(Some(convert_button)));
     DECODE_BUTTON.with(|slot| slot.replace(Some(decode_button)));
     COMPRESS_BUTTON.with(|slot| slot.replace(Some(compress_button)));
