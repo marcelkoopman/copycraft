@@ -13,6 +13,9 @@ pub struct ClipboardImage {
     pub width: usize,
     pub height: usize,
     pub rgba: Vec<u8>,
+    /// Clipboard pixel size. `width` and `height` can be a smaller preview.
+    pub full_width: usize,
+    pub full_height: usize,
 }
 
 impl ClipboardImage {
@@ -25,6 +28,8 @@ impl ClipboardImage {
             width,
             height,
             rgba,
+            full_width: width,
+            full_height: height,
         })
     }
 
@@ -51,51 +56,43 @@ pub enum ClipboardView {
     Empty,
     NoText,
     Text(String),
-    Image(ClipboardImage),
+    /// An image is on the clipboard. Pixels are not loaded here.
+    Image,
 }
 
 impl ClipboardView {
     pub fn from_os() -> Self {
-        match arboard::Clipboard::new() {
-            Ok(mut cb) => {
-                let text = cb.get_text().ok();
-                match text {
-                    Some(text) if !text.trim().is_empty() => Self::Text(text),
-                    other => match cb.get_image().ok().and_then(ClipboardImage::from_arboard) {
-                        Some(image) => Self::Image(image),
-                        None if other.as_deref().is_some_and(|text| text.trim().is_empty()) => {
-                            Self::Empty
-                        }
-                        None => Self::NoText,
-                    },
-                }
-            }
-            Err(_) => Self::NoText,
+        #[cfg(target_os = "macos")]
+        {
+            // The menu refreshes several times a second. Reading pixels here
+            // decodes a full image every time and stalls the process.
+            crate::macos_pasteboard::current_view()
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            from_os_fallback()
         }
     }
 
     pub fn text(&self) -> Option<&str> {
         match self {
             Self::Text(text) => Some(text),
-            Self::Empty | Self::NoText | Self::Image(_) => None,
+            Self::Empty | Self::NoText | Self::Image => None,
         }
     }
 
-    pub fn image(&self) -> Option<&ClipboardImage> {
-        match self {
-            Self::Image(image) => Some(image),
-            Self::Empty | Self::NoText | Self::Text(_) => None,
-        }
+    pub fn is_image(&self) -> bool {
+        matches!(self, Self::Image)
     }
 
     pub fn is_previewable(&self) -> bool {
-        matches!(self, Self::Text(_) | Self::Image(_))
+        matches!(self, Self::Text(_) | Self::Image)
     }
 
     pub fn type_mark(&self) -> Option<&'static str> {
         match self {
             Self::Text(text) => Some(menu_mark(text)),
-            Self::Image(_) => Some(format::FormatKind::Image.menu_symbol()),
+            Self::Image => Some(format::FormatKind::Image.menu_symbol()),
             Self::Empty | Self::NoText => None,
         }
     }
@@ -105,7 +102,7 @@ impl ClipboardView {
             Self::Empty => "(clipboard is empty)".to_string(),
             Self::NoText => "(clipboard has no text)".to_string(),
             Self::Text(text) => one_line(text),
-            Self::Image(_) => format::FormatKind::Image.menu_symbol().to_string(),
+            Self::Image => format::FormatKind::Image.menu_symbol().to_string(),
         }
     }
 }
@@ -161,9 +158,35 @@ pub fn write_clipboard_image(image: &ClipboardImage) -> Result<(), String> {
     .map_err(|e| e.to_string())
 }
 
+#[cfg(target_os = "macos")]
+pub fn load_full_image() -> Option<ClipboardImage> {
+    let mut cb = arboard::Clipboard::new().ok()?;
+    cb.get_image().ok().and_then(ClipboardImage::from_arboard)
+}
+
 pub fn clear_clipboard() -> Result<(), String> {
     let mut cb = arboard::Clipboard::new().map_err(|e| e.to_string())?;
     cb.clear().map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn from_os_fallback() -> ClipboardView {
+    match arboard::Clipboard::new() {
+        Ok(mut cb) => {
+            let text = cb.get_text().ok();
+            match text {
+                Some(text) if !text.trim().is_empty() => ClipboardView::Text(text),
+                other => match cb.get_image().ok().and_then(ClipboardImage::from_arboard) {
+                    Some(_) => ClipboardView::Image,
+                    None if other.as_deref().is_some_and(|text| text.trim().is_empty()) => {
+                        ClipboardView::Empty
+                    }
+                    None => ClipboardView::NoText,
+                },
+            }
+        }
+        Err(_) => ClipboardView::NoText,
+    }
 }
 
 pub fn try_format_json(text: &str) -> Option<String> {
@@ -211,10 +234,9 @@ mod tests {
 
     #[test]
     fn image_view_is_previewable() {
-        let image = ClipboardImage::new(1, 1, vec![0, 0, 0, 255]).expect("rgba");
-        let view = ClipboardView::Image(image);
+        let view = ClipboardView::Image;
         assert!(view.is_previewable());
-        assert!(view.image().is_some());
+        assert!(view.is_image());
         assert!(view.text().is_none());
         assert_eq!(view.label(), "img");
         assert_eq!(view.type_mark(), Some("img"));

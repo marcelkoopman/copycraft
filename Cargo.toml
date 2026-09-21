@@ -22,7 +22,7 @@ arboard = "3"
 base64 = "0.23"
 compression-prompt = "0.1.2"
 global-hotkey = "0.8"
-image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "tiff"] }
 polars = { version = "0.55.2", default-features = false, features = ["csv", "json", "fmt", "dtype-slim"] }
 redact-core = "0.12"
 serde_json = "1"
@@ -40,6 +40,7 @@ objc2-app-kit = { version = "0.3", features = [
     "NSAppearance",
     "NSApplication",
     "NSBitmapImageRep",
+    "NSPasteboard",
     "NSButton",
     "NSCell",
     "NSColor",

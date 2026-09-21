@@ -13,6 +13,18 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     }
 }
 
+pub fn show_clipboard_image() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        crate::macos_window::show_clipboard_image()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("native preview is macOS-only".into())
+    }
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn show_image(image: &ClipboardImage) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
@@ -27,7 +39,7 @@ pub fn show_image(image: &ClipboardImage) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{show, show_image};
+    use super::{show, show_clipboard_image, show_image};
     use crate::clipboard::ClipboardImage;
     use crate::format::FormatKind;
 
@@ -40,5 +52,6 @@ mod tests {
     fn show_image_is_defined() {
         let image = ClipboardImage::new(1, 1, vec![0, 0, 0, 255]).expect("rgba");
         let _ = show_image(&image);
+        let _ = show_clipboard_image();
     }
 }
