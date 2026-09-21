@@ -14,7 +14,7 @@ long_description = "A macOS menubar app that transforms clipboard content into a
 
 [package.metadata.bundle.macos]
 minimum_system_version = "10.13"
-info_plist_entries = { LSUIElement = true }
+info_plist_exts = ["assets/Info.plist.ext"]
 
 [dependencies]
 anyhow = "1.0.104"
