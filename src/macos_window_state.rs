@@ -12,7 +12,6 @@ thread_local! {
     static COMPRESS_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static REDACT_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static DATAFRAME_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
-    static VALIDATE_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static INFO_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static OCR_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static QR_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
@@ -29,7 +28,6 @@ thread_local! {
     static PREVIEW_KIND: RefCell<FormatKind> = const { RefCell::new(FormatKind::Plain) };
     static SOURCE_KIND: RefCell<FormatKind> = const { RefCell::new(FormatKind::Plain) };
     static VIEW_MODE: RefCell<ViewMode> = const { RefCell::new(ViewMode::Format) };
-    static VALIDATE_MARK: Cell<ValidateMark> = const { Cell::new(ValidateMark::Idle) };
 }
 
 define_class!(
@@ -222,36 +220,6 @@ define_class!(
             paint_mode_buttons();
         }
 
-        #[unsafe(method(validateClicked:))]
-        fn validate_clicked(&self, _sender: Option<&AnyObject>) {
-            let report = SOURCE_TEXT.with(|src| validate::check(&src.borrow()));
-            let Some(report) = report else {
-                clear_validate_mark();
-                flash_button(
-                    &VALIDATE_BUTTON,
-                    "Failed",
-                    "Validate",
-                    error_flash_color(),
-                    true,
-                );
-                reset_later(self, sel!(resetValidateLabel:));
-                return;
-            };
-            VALIDATE_MARK.with(|slot| {
-                slot.set(if report.ok {
-                    ValidateMark::Valid
-                } else {
-                    ValidateMark::Invalid
-                });
-            });
-            paint_mode_buttons();
-        }
-
-        #[unsafe(method(resetValidateLabel:))]
-        fn reset_validate_label(&self, _sender: Option<&AnyObject>) {
-            paint_mode_buttons();
-        }
-
         #[unsafe(method(saveClicked:))]
         fn save_clicked(&self, _sender: Option<&AnyObject>) {
             let saved = save_preview_to_file();
@@ -331,9 +299,6 @@ fn redact_flash_color() -> Retained<NSColor> {
 }
 fn dataframe_flash_color() -> Retained<NSColor> {
     NSColor::colorWithCalibratedRed_green_blue_alpha(0.39, 0.82, 1.0, 1.0)
-}
-fn validate_flash_color() -> Retained<NSColor> {
-    NSColor::colorWithCalibratedRed_green_blue_alpha(0.36, 0.82, 0.56, 1.0)
 }
 fn info_flash_color() -> Retained<NSColor> {
     NSColor::colorWithCalibratedRed_green_blue_alpha(0.96, 0.77, 0.26, 1.0)

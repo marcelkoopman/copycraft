@@ -32,7 +32,6 @@ use crate::macos_preview_text::{configure_scrolling_text, editor_font, set_body}
 use crate::macos_vision;
 use crate::redact;
 use crate::toolbar_visibility;
-use crate::validate;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ViewMode {
@@ -46,14 +45,6 @@ enum ViewMode {
     Info,
     Ocr,
     Qr,
-}
-
-/// Result shown on the Validate button. The preview text stays unchanged.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum ValidateMark {
-    Idle,
-    Valid,
-    Invalid,
 }
 
 include!("macos_window_state.rs");
