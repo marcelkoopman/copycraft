@@ -49,11 +49,15 @@ pub fn shows_convert(source: &str) -> bool {
     crate::convert::try_convert(source).is_some()
 }
 
+pub fn shows_validate(source: &str) -> bool {
+    crate::validate::check(source).is_some()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         shows_compress, shows_convert, shows_dataframe, shows_dataframe_button, shows_decode,
-        shows_format, shows_redact,
+        shows_format, shows_redact, shows_validate,
     };
     use crate::format::FormatKind;
 
@@ -210,5 +214,19 @@ mod tests {
         ));
         assert!(!shows_format(""));
         assert!(!shows_convert(""));
+        assert!(!shows_validate(""));
+    }
+
+    #[test]
+    fn validate_shows_for_json_and_xml_only() {
+        assert!(shows_validate(r#"{"name":"copycraft"}"#));
+        assert!(shows_validate("{\n  \"name\": \"copycraft\"\n}"));
+        assert!(shows_validate(r#"{"name":"copycraft",}"#));
+        assert!(shows_validate("<root><item/></root>"));
+        assert!(shows_validate("<root><item></root>"));
+        assert!(!shows_validate("hello world"));
+        assert!(!shows_validate("fn main() {}"));
+        assert!(!shows_validate("name,age\nalice,30\nbob,40"));
+        assert!(!shows_validate("name: copycraft\ncount: 2\n"));
     }
 }
