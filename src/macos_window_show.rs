@@ -26,20 +26,41 @@ pub fn show(source: &str, kind: FormatKind) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn show_image(image: &ClipboardImage) -> Result<(), String> {
+    begin_image_window()?;
+    install_preview_image(image.clone(), None, 0);
+    Ok(())
+}
+
+pub fn show_clipboard_image() -> Result<(), String> {
+    begin_image_window()?;
+    let scan_id = IMAGE_SCAN_GEN.load(Ordering::SeqCst);
+    std::thread::spawn(move || {
+        let decoded = crate::macos_pasteboard::decode_preview();
+        if decoded.is_none() {
+            eprintln!("image preview failed");
+        }
+        DispatchQueue::main().exec_async(move || {
+            deliver_clipboard_preview(scan_id, decoded);
+        });
+    });
+    Ok(())
+}
+
+fn begin_image_window() -> Result<(), String> {
     let mtm = MainThreadMarker::new().ok_or("preview must run on the main thread")?;
     let mode = ViewMode::Original;
     let kind = FormatKind::Image;
-    SOURCE_IMAGE.with(|slot| slot.replace(Some(image.clone())));
+    SOURCE_IMAGE.with(|slot| slot.replace(None));
     clear_image_actions();
     SOURCE_TEXT.with(|slot| slot.replace(String::new()));
     PREVIEW_TEXT.with(|slot| slot.replace(String::new()));
     PREVIEW_KIND.with(|slot| slot.replace(kind));
     SOURCE_KIND.with(|slot| slot.replace(kind));
     VIEW_MODE.with(|slot| slot.replace(mode));
-    let title = window_title(kind, mode);
     activate_app(mtm);
-    ensure_preview_window(mtm, &title);
+    ensure_preview_window(mtm, "Image");
     present_image_body();
     IMAGE_VIEW.with(|slot| {
         if let Some(view) = slot.borrow().as_ref() {
@@ -50,7 +71,6 @@ pub fn show_image(image: &ClipboardImage) -> Result<(), String> {
     apply_toolbar_for_kind(kind);
     flash_button(&COPY_BUTTON, "Copied  \u{2713}", "Copy", copy_flash_color(), false);
     flash_button(&SAVE_BUTTON, "Saved  \u{2713}", "Save", save_flash_color(), false);
-    start_image_actions(image.clone());
     Ok(())
 }
 

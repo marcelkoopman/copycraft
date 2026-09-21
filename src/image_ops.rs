@@ -6,6 +6,10 @@ use crate::clipboard::ClipboardImage;
 
 pub const JPEG_QUALITY: u8 = 80;
 
+/// Longest edge of the on-screen picture. The preview is only an indication
+/// of the clipboard image, so it stays small enough to decode and draw quickly.
+pub const PREVIEW_MAX_EDGE: usize = 640;
+
 pub fn info_dimensions(image: &ClipboardImage) -> String {
     info_with_sizes(image, None, None)
 }
@@ -15,11 +19,12 @@ pub fn info_with_sizes(
     png_len: Option<usize>,
     jpeg_len: Option<usize>,
 ) -> String {
+    let (width, height) = display_size(image);
     let mut lines = vec![
         "Image".to_string(),
-        format!("Size: {}×{}", image.width, image.height),
-        format!("Aspect: {}", aspect_ratio(image.width, image.height)),
-        format!("Pixels: {}", image.width.saturating_mul(image.height)),
+        format!("Size: {width}×{height}"),
+        format!("Aspect: {}", aspect_ratio(width, height)),
+        format!("Pixels: {}", width.saturating_mul(height)),
     ];
     if let Some(len) = png_len {
         lines.push(format!("PNG: {}", format_bytes(len)));
@@ -47,6 +52,83 @@ pub fn jpeg_bytes(image: &ClipboardImage, quality: u8) -> Result<Vec<u8>, String
 pub fn image_from_encoded(bytes: &[u8]) -> Option<ClipboardImage> {
     let img = image::load_from_memory(bytes).ok()?.to_rgba8();
     ClipboardImage::new(img.width() as usize, img.height() as usize, img.into_raw())
+}
+
+pub fn preview_from_encoded(bytes: &[u8]) -> Option<ClipboardImage> {
+    let image = image_from_encoded(bytes)?;
+    Some(downscale_for_preview(image, PREVIEW_MAX_EDGE))
+}
+
+pub fn downscale_for_preview(image: ClipboardImage, max_edge: usize) -> ClipboardImage {
+    let max_edge = max_edge.max(1);
+    let (tw, th) = fitted_size(image.width, image.height, max_edge);
+    if tw == 0 || th == 0 || (tw == image.width && th == image.height) {
+        return image;
+    }
+    let mut out = vec![0u8; tw * th * 4];
+    for y in 0..th {
+        let y0 = y * image.height / th;
+        let y1 = ((y + 1) * image.height / th).max(y0 + 1).min(image.height);
+        for x in 0..tw {
+            let x0 = x * image.width / tw;
+            let x1 = ((x + 1) * image.width / tw).max(x0 + 1).min(image.width);
+            let mut acc = [0u32; 4];
+            let mut count = 0u32;
+            for sy in y0..y1 {
+                for sx in x0..x1 {
+                    let i = (sy * image.width + sx) * 4;
+                    acc[0] += u32::from(image.rgba[i]);
+                    acc[1] += u32::from(image.rgba[i + 1]);
+                    acc[2] += u32::from(image.rgba[i + 2]);
+                    acc[3] += u32::from(image.rgba[i + 3]);
+                    count += 1;
+                }
+            }
+            let d = (y * tw + x) * 4;
+            let count = count.max(1);
+            out[d] = (acc[0] / count) as u8;
+            out[d + 1] = (acc[1] / count) as u8;
+            out[d + 2] = (acc[2] / count) as u8;
+            out[d + 3] = (acc[3] / count) as u8;
+        }
+    }
+    let full_width = image.full_width;
+    let full_height = image.full_height;
+    match ClipboardImage::new(tw, th, out) {
+        Some(mut preview) => {
+            preview.full_width = full_width;
+            preview.full_height = full_height;
+            preview
+        }
+        None => image,
+    }
+}
+
+fn display_size(image: &ClipboardImage) -> (usize, usize) {
+    if image.full_width == 0 || image.full_height == 0 {
+        (image.width, image.height)
+    } else {
+        (image.full_width, image.full_height)
+    }
+}
+
+fn fitted_size(width: usize, height: usize, max_edge: usize) -> (usize, usize) {
+    if width == 0 || height == 0 {
+        return (0, 0);
+    }
+    let long = width.max(height);
+    if long <= max_edge {
+        return (width, height);
+    }
+    if width >= height {
+        let tw = max_edge;
+        let th = (height * max_edge / width).max(1);
+        (tw, th)
+    } else {
+        let th = max_edge;
+        let tw = (width * max_edge / height).max(1);
+        (tw, th)
+    }
 }
 
 fn rgba_to_rgb(rgba: &[u8]) -> Vec<u8> {
@@ -87,7 +169,10 @@ fn format_bytes(n: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{aspect_ratio, format_bytes, image_from_encoded, info_with_sizes, jpeg_bytes};
+    use super::{
+        aspect_ratio, downscale_for_preview, format_bytes, image_from_encoded, info_dimensions,
+        info_with_sizes, jpeg_bytes,
+    };
     use crate::clipboard::ClipboardImage;
 
     fn sample() -> ClipboardImage {
@@ -130,6 +215,27 @@ mod tests {
         let png = image.png_bytes().expect("png");
         let jpeg = jpeg_bytes(&image, 80).expect("jpeg");
         assert!(jpeg.len() < png.len());
+    }
+
+    #[test]
+    fn downscale_keeps_full_size_and_shrinks_pixels() {
+        let rgba = vec![10, 20, 30, 255].repeat(8);
+        let image = ClipboardImage::new(4, 2, rgba).expect("rgba");
+        let preview = downscale_for_preview(image, 2);
+        assert_eq!((preview.width, preview.height), (2, 1));
+        assert_eq!((preview.full_width, preview.full_height), (4, 2));
+        assert!(preview.rgba.chunks(4).all(|px| px == [10, 20, 30, 255]));
+        let info = info_dimensions(&preview);
+        assert!(info.contains("4×2"));
+        assert!(info.contains("Pixels: 8"));
+        assert!(!info.contains("2×1"));
+    }
+
+    #[test]
+    fn downscale_leaves_small_images_alone() {
+        let image = ClipboardImage::new(2, 2, vec![7; 16]).expect("rgba");
+        let preview = downscale_for_preview(image.clone(), 640);
+        assert_eq!(preview, image);
     }
 
     #[test]

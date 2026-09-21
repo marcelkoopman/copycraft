@@ -12,7 +12,7 @@ fn window_title(kind: FormatKind, mode: ViewMode) -> String {
             _ => SOURCE_IMAGE.with(|slot| {
                 slot.borrow()
                     .as_ref()
-                    .map(|image| format!("Image {}×{}", image.width, image.height))
+                    .map(|image| format!("Image {}×{}", image.full_width, image.full_height))
                     .unwrap_or_else(|| "Image".to_string())
             }),
         };
@@ -93,6 +93,14 @@ fn copy_image_pixels() -> Result<(), String> {
         };
         return clipboard::write_clipboard_image(&image);
     }
+    let seen = PREVIEW_CHANGE_COUNT.with(|slot| slot.get());
+    if seen != 0 && seen == crate::macos_pasteboard::change_count() {
+        return Ok(());
+    }
+    let png = IMAGE_SOURCE_PNG.with(|slot| slot.borrow().clone());
+    if let Some(png) = png {
+        return crate::macos_pasteboard::write_png(&png);
+    }
     SOURCE_IMAGE.with(|slot| match slot.borrow().as_ref() {
         Some(image) => clipboard::write_clipboard_image(image),
         None => Err("no image on clipboard".into()),
@@ -110,18 +118,60 @@ struct PendingImageActions {
 static IMAGE_SCAN_GEN: AtomicU64 = AtomicU64::new(0);
 static PENDING_IMAGE_ACTIONS: Mutex<Option<PendingImageActions>> = Mutex::new(None);
 
-fn start_image_actions(image: ClipboardImage) {
+fn install_preview_image(
+    image: ClipboardImage,
+    source_png: Option<Vec<u8>>,
+    change_count: isize,
+) {
+    let png_len = source_png.as_ref().map(Vec::len);
+    IMAGE_SOURCE_PNG.with(|slot| slot.replace(source_png));
+    PREVIEW_CHANGE_COUNT.with(|slot| slot.set(change_count));
+    SOURCE_IMAGE.with(|slot| slot.replace(Some(image.clone())));
+    let title = format!("Image {}×{}", image.full_width, image.full_height);
+    WINDOW.with(|slot| {
+        if let Some(window) = slot.borrow().as_ref() {
+            window.setTitle(&NSString::from_str(&title));
+        }
+    });
+    present_image_body();
+    apply_toolbar_for_kind(FormatKind::Image);
+    start_image_actions(image, png_len);
+}
+
+fn deliver_clipboard_preview(
+    scan_id: u64,
+    decoded: Option<crate::macos_pasteboard::DecodedPreview>,
+) {
+    if scan_id != IMAGE_SCAN_GEN.load(Ordering::SeqCst) {
+        return;
+    }
+    if SOURCE_KIND.with(|slot| *slot.borrow()) != FormatKind::Image {
+        return;
+    }
+    let Some(decoded) = decoded else {
+        return;
+    };
+    install_preview_image(decoded.image, decoded.source_png, decoded.change_count);
+}
+
+fn start_image_actions(image: ClipboardImage, original_png_len: Option<usize>) {
     let scan_id = IMAGE_SCAN_GEN.fetch_add(1, Ordering::SeqCst) + 1;
     std::thread::spawn(move || {
+        let full_res = image.width == image.full_width && image.height == image.full_height;
         let png = image.png_bytes().ok();
-        let jpeg_all = image_ops::jpeg_bytes(&image, image_ops::JPEG_QUALITY).ok();
-        let jpeg = match (&png, &jpeg_all) {
-            (Some(png), Some(jpeg)) if jpeg.len() < png.len() => Some(jpeg.clone()),
+        let jpeg_all = if full_res {
+            image_ops::jpeg_bytes(&image, image_ops::JPEG_QUALITY).ok()
+        } else {
+            None
+        };
+        let png_len = original_png_len.or_else(|| png.as_ref().map(Vec::len));
+        let jpeg = match (png_len, &jpeg_all) {
+            (Some(png_len), Some(jpeg)) if jpeg.len() < png_len => Some(jpeg.clone()),
             _ => None,
         };
         let info = image_ops::info_with_sizes(
             &image,
-            png.as_ref().map(Vec::len),
+            png_len,
             jpeg_all.as_ref().map(Vec::len),
         );
         let (ocr, qr) = png
@@ -171,6 +221,8 @@ fn clear_image_actions() {
     IMAGE_OCR.with(|slot| slot.replace(None));
     IMAGE_QR.with(|slot| slot.replace(None));
     IMAGE_INFO.with(|slot| slot.replace(None));
+    IMAGE_SOURCE_PNG.with(|slot| slot.replace(None));
+    PREVIEW_CHANGE_COUNT.with(|slot| slot.set(0));
 }
 
 fn reveal_preview_body() {
@@ -367,7 +419,7 @@ fn apply_toolbar_for_kind(kind: FormatKind) {
     };
     let show_decode =
         toolbar_visibility::shows_decode(kind) && decode::try_decode(&source).is_some();
-    let show_info = is_image;
+    let show_info = is_image && SOURCE_IMAGE.with(|slot| slot.borrow().is_some());
     let show_ocr = is_image && IMAGE_OCR.with(|slot| slot.borrow().is_some());
     let show_qr = is_image && IMAGE_QR.with(|slot| slot.borrow().is_some());
     if !show_format {
@@ -548,13 +600,27 @@ fn save_preview_to_file() -> bool {
     std::fs::write(path.to_string(), body.as_bytes()).is_ok()
 }
 
-fn save_image_png(mtm: MainThreadMarker) -> bool {
-    let png = SOURCE_IMAGE.with(|slot| {
+fn png_bytes_for_save() -> Option<Vec<u8>> {
+    let stored = IMAGE_SOURCE_PNG.with(|slot| slot.borrow().clone());
+    if stored.is_some() {
+        return stored;
+    }
+    let seen = PREVIEW_CHANGE_COUNT.with(|slot| slot.get());
+    if seen != 0
+        && seen == crate::macos_pasteboard::change_count()
+        && let Some(image) = clipboard::load_full_image()
+    {
+        return image.png_bytes().ok();
+    }
+    SOURCE_IMAGE.with(|slot| {
         slot.borrow()
             .as_ref()
             .and_then(|image| image.png_bytes().ok())
-    });
-    let Some(png) = png else {
+    })
+}
+
+fn save_image_png(mtm: MainThreadMarker) -> bool {
+    let Some(png) = png_bytes_for_save() else {
         return false;
     };
     let kind = FormatKind::Image;

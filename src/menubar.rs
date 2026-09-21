@@ -114,8 +114,8 @@ impl App {
 
     fn show_current(&mut self) {
         let view = ClipboardView::from_os();
-        if let Some(image) = view.image() {
-            self.open_image_preview(image);
+        if view.is_image() {
+            self.open_image_preview();
             return;
         }
         if let Some(text) = view.text() {
@@ -137,8 +137,8 @@ impl App {
         self.rebuild_menu(true);
     }
 
-    fn open_image_preview(&mut self, image: &clipboard::ClipboardImage) {
-        if let Err(e) = preview::show_image(image) {
+    fn open_image_preview(&mut self) {
+        if let Err(e) = preview::show_clipboard_image() {
             eprintln!("preview failed: {e}");
         }
         self.rebuild_menu(true);
@@ -163,7 +163,7 @@ impl App {
             .count();
         let kind = match &view {
             ClipboardView::Text(text) => Some(format::detect(text)),
-            ClipboardView::Image(_) => Some(format::FormatKind::Image),
+            ClipboardView::Image => Some(format::FormatKind::Image),
             ClipboardView::Empty | ClipboardView::NoText => None,
         };
         if !force
