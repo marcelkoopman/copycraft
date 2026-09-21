@@ -76,6 +76,8 @@ fn begin_image_window() -> Result<(), String> {
     Ok(())
 }
 
+const WINDOW_ALPHA: f64 = 0.94;
+
 fn activate_app(mtm: MainThreadMarker) {
     let app = NSApplication::sharedApplication(mtm);
     #[allow(deprecated)]
@@ -88,7 +90,7 @@ fn ensure_preview_window(mtm: MainThreadMarker, title: &str) {
         WINDOW.with(|slot| {
             if let Some(window) = slot.borrow().as_ref() {
                 window.setTitle(&NSString::from_str(title));
-                window.setAlphaValue(0.86);
+                window.setAlphaValue(WINDOW_ALPHA);
                 window.makeKeyAndOrderFront(None);
                 window.orderFrontRegardless();
             }
@@ -120,12 +122,13 @@ fn ensure_preview_window(mtm: MainThreadMarker, title: &str) {
     window.setOpaque(false);
     window.setHasShadow(true);
     window.setBackgroundColor(Some(&NSColor::clearColor()));
-    window.setAlphaValue(0.86);
+    window.setAlphaValue(WINDOW_ALPHA);
 
     let bounds = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(width, height));
     let frosted = NSVisualEffectView::initWithFrame(NSVisualEffectView::alloc(mtm), bounds);
-    frosted.setMaterial(NSVisualEffectMaterial::UnderWindowBackground);
+    frosted.setMaterial(NSVisualEffectMaterial::WindowBackground);
     frosted.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
+    frosted.setEmphasized(true);
     frosted.setState(NSVisualEffectState::Active);
     frosted.setAutoresizingMask(
         NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
