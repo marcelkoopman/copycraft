@@ -132,7 +132,9 @@ fn install_preview_image(
     source_png: Option<Vec<u8>>,
     change_count: isize,
 ) {
-    let png_len = source_png.as_ref().map(Vec::len);
+    let source_png = source_png.map(Arc::<[u8]>::from);
+    let png_len = source_png.as_ref().map(|bytes| bytes.len());
+    let scan_png = source_png.clone();
     IMAGE_SOURCE_PNG.with(|slot| slot.replace(source_png));
     PREVIEW_CHANGE_COUNT.with(|slot| slot.set(change_count));
     SOURCE_IMAGE.with(|slot| slot.replace(Some(image.clone())));
@@ -144,7 +146,7 @@ fn install_preview_image(
     });
     present_image_body();
     apply_toolbar_for_kind(FormatKind::Image);
-    start_image_actions(image, png_len);
+    start_image_actions(image, png_len, scan_png);
 }
 
 fn deliver_clipboard_preview(
@@ -163,28 +165,35 @@ fn deliver_clipboard_preview(
     install_preview_image(decoded.image, decoded.source_png, decoded.change_count);
 }
 
-fn start_image_actions(image: ClipboardImage, original_png_len: Option<usize>) {
+fn start_image_actions(
+    image: ClipboardImage,
+    original_png_len: Option<usize>,
+    source_png: Option<Arc<[u8]>>,
+) {
     let scan_id = IMAGE_SCAN_GEN.fetch_add(1, Ordering::SeqCst) + 1;
     std::thread::spawn(move || {
         let full_res = image.width == image.full_width && image.height == image.full_height;
-        let png = image.png_bytes().ok();
+        // Scan the original PNG when the clipboard still has one. The preview
+        // bitmap is only a thumbnail, so encoding that again loses detail.
+        let encoded;
+        let scan: Option<&[u8]> = if let Some(bytes) = source_png.as_deref() {
+            Some(bytes)
+        } else {
+            encoded = image.png_bytes().ok();
+            encoded.as_deref()
+        };
         let jpeg_all = if full_res {
             image_ops::jpeg_bytes(&image, image_ops::JPEG_QUALITY).ok()
         } else {
             None
         };
-        let png_len = original_png_len.or_else(|| png.as_ref().map(Vec::len));
+        let png_len = original_png_len.or_else(|| scan.map(|bytes| bytes.len()));
         let jpeg = match (png_len, &jpeg_all) {
             (Some(png_len), Some(jpeg)) if jpeg.len() < png_len => Some(jpeg.clone()),
             _ => None,
         };
-        let info = image_ops::info_with_sizes(
-            &image,
-            png_len,
-            jpeg_all.as_ref().map(Vec::len),
-        );
-        let (ocr, qr) = png
-            .as_deref()
+        let info = image_ops::info_with_sizes(&image, png_len, jpeg_all.as_ref().map(Vec::len));
+        let (ocr, qr) = scan
             .map(macos_vision::scan_png)
             .unwrap_or((None, None));
         if scan_id != IMAGE_SCAN_GEN.load(Ordering::SeqCst) {
@@ -610,7 +619,7 @@ fn save_preview_to_file() -> bool {
     std::fs::write(path.to_string(), body).is_ok()
 }
 
-fn png_bytes_for_save() -> Option<Vec<u8>> {
+fn png_bytes_for_save() -> Option<Arc<[u8]>> {
     let stored = IMAGE_SOURCE_PNG.with(|slot| slot.borrow().clone());
     if stored.is_some() {
         return stored;
@@ -620,12 +629,13 @@ fn png_bytes_for_save() -> Option<Vec<u8>> {
         && seen == crate::macos_pasteboard::change_count()
         && let Some(image) = clipboard::load_full_image()
     {
-        return image.png_bytes().ok();
+        return image.png_bytes().ok().map(Arc::from);
     }
     SOURCE_IMAGE.with(|slot| {
         slot.borrow()
             .as_ref()
             .and_then(|image| image.png_bytes().ok())
+            .map(Arc::from)
     })
 }
 

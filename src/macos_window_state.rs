@@ -18,7 +18,7 @@ thread_local! {
     static SAVE_BUTTON: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static SOURCE_TEXT: RefCell<String> = const { RefCell::new(String::new()) };
     static SOURCE_IMAGE: RefCell<Option<ClipboardImage>> = const { RefCell::new(None) };
-    static IMAGE_SOURCE_PNG: RefCell<Option<Vec<u8>>> = const { RefCell::new(None) };
+    static IMAGE_SOURCE_PNG: RefCell<Option<Arc<[u8]>>> = const { RefCell::new(None) };
     static PREVIEW_CHANGE_COUNT: Cell<isize> = const { Cell::new(0) };
     static IMAGE_JPEG: RefCell<Option<Vec<u8>>> = const { RefCell::new(None) };
     static IMAGE_OCR: RefCell<Option<String>> = const { RefCell::new(None) };

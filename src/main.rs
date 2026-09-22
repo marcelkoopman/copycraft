@@ -16,6 +16,8 @@ mod transform;
 mod validate;
 
 #[cfg(target_os = "macos")]
+mod macos_image_io;
+#[cfg(target_os = "macos")]
 mod macos_pasteboard;
 #[cfg(target_os = "macos")]
 mod macos_preview_image;

@@ -1,6 +1,7 @@
 #![cfg(target_os = "macos")]
 
 use std::cell::{Cell, RefCell};
+use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 

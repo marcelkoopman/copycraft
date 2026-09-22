@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use global_hotkey::hotkey::{Code, HotKey, Modifiers};
@@ -26,6 +27,9 @@ const REFRESH: Duration = Duration::from_millis(400);
 struct App {
     tray: TrayIcon,
     history: ClipboardHistory,
+    current_image: Option<Arc<[u8]>>,
+    recorded_image_change: Option<isize>,
+    skip_image_change: Option<isize>,
     last_label: String,
     history_len: usize,
     last_kind: Option<format::FormatKind>,
@@ -82,16 +86,20 @@ impl ApplicationHandler for App {
 }
 
 impl App {
-    fn current_text(&self) -> Option<String> {
-        ClipboardView::from_os().text().map(str::to_string)
-    }
-
     fn format_and_preview(&mut self) {
         self.show_current();
     }
 
     fn clear_history(&mut self) {
-        self.skip_record = self.current_text();
+        let view = ClipboardView::from_os();
+        self.skip_record = view.text().map(str::to_string);
+        if view.is_image() {
+            #[cfg(target_os = "macos")]
+            {
+                self.skip_image_change = Some(crate::macos_pasteboard::change_count());
+            }
+        }
+        self.current_image = None;
         self.history.clear();
         self.last_label.clear();
         self.history_len = 0;
@@ -124,6 +132,10 @@ impl App {
     }
 
     fn show_history(&mut self, index: usize) {
+        if let Some(bytes) = self.history.image(index) {
+            self.open_stored_image(bytes);
+            return;
+        }
         if let Some(text) = self.history.get(index).map(str::to_string) {
             self.open_preview(&text);
         }
@@ -144,14 +156,39 @@ impl App {
         self.rebuild_menu(true);
     }
 
-    fn rebuild_menu(&mut self, force: bool) {
-        let view = ClipboardView::from_os();
+    fn open_stored_image(&mut self, bytes: Arc<[u8]>) {
+        if let Err(e) = preview::show_stored_image(bytes.to_vec()) {
+            eprintln!("preview failed: {e}");
+        }
+        self.rebuild_menu(true);
+    }
+
+    fn record_current(&mut self, view: &ClipboardView) {
+        #[cfg(target_os = "macos")]
+        if view.is_image() {
+            let change = crate::macos_pasteboard::change_count();
+            if self.skip_image_change == Some(change) || self.recorded_image_change == Some(change)
+            {
+                return;
+            }
+            self.recorded_image_change = Some(change);
+            if let Some(bytes) = crate::macos_pasteboard::current_image_bytes() {
+                self.current_image = self.history.record_image(bytes);
+            }
+            return;
+        }
+        self.current_image = None;
         if let Some(text) = view.text()
             && self.should_record(text)
         {
             self.skip_record = None;
             self.history.record(text.to_string());
         }
+    }
+
+    fn rebuild_menu(&mut self, force: bool) {
+        let view = ClipboardView::from_os();
+        self.record_current(&view);
 
         let label = view.label();
         let current_text = view.text();
@@ -159,7 +196,10 @@ impl App {
             .history
             .labels()
             .into_iter()
-            .filter(|(index, _)| self.history.get(*index) != current_text)
+            .filter(|(index, _)| {
+                self.history
+                    .shows_in_history(*index, current_text, self.current_image.as_ref())
+            })
             .count();
         let kind = match &view {
             ClipboardView::Text(text) => Some(format::detect(text)),
@@ -192,7 +232,10 @@ impl App {
             .history
             .labels()
             .into_iter()
-            .filter(|(index, _)| self.history.get(*index) != current_text)
+            .filter(|(index, _)| {
+                self.history
+                    .shows_in_history(*index, current_text, self.current_image.as_ref())
+            })
             .collect();
 
         let menu = Menu::new();
@@ -221,7 +264,7 @@ impl App {
                     &format!("hist_{index}"),
                     item_label,
                     true,
-                    self.history.get(index).map(clipboard::menu_mark),
+                    self.history.mark(index),
                     false,
                 );
                 let _ = menu.append(&item);
@@ -360,6 +403,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut app = App {
         tray,
         history: ClipboardHistory::default(),
+        current_image: None,
+        recorded_image_change: None,
+        skip_image_change: None,
         last_label: String::new(),
         history_len: 0,
         last_kind: None,

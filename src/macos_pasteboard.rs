@@ -20,6 +20,7 @@ const IMAGE_EXTS: &[&str] = &[
 struct CachedView {
     change_count: isize,
     view: ClipboardView,
+    image_path: Option<PathBuf>,
 }
 
 static CACHE: Mutex<Option<CachedView>> = Mutex::new(None);
@@ -39,18 +40,41 @@ pub(crate) fn current_view() -> ClipboardView {
     {
         return cached.view.clone();
     }
-    let view = read_view(&pasteboard);
+    let (view, image_path) = read_view(&pasteboard);
     if let Ok(mut guard) = CACHE.lock() {
         *guard = Some(CachedView {
             change_count,
             view: view.clone(),
+            image_path,
         });
     }
     view
 }
 
+fn cached_image_path(change_count: isize) -> Option<PathBuf> {
+    let guard = CACHE.lock().ok()?;
+    let cached = guard.as_ref()?;
+    if cached.change_count == change_count {
+        cached.image_path.clone()
+    } else {
+        None
+    }
+}
+
 pub(crate) fn change_count() -> isize {
     NSPasteboard::generalPasteboard().changeCount()
+}
+
+pub(crate) fn current_image_bytes() -> Option<Vec<u8>> {
+    let pasteboard = NSPasteboard::generalPasteboard();
+    let change_count = pasteboard.changeCount();
+    let cached_path = cached_image_path(change_count);
+    autoreleasepool(
+        |_| match image_source(&pasteboard, cached_path.as_deref())? {
+            ImageSource::Bytes { bytes, .. } => Some(bytes),
+            ImageSource::File(path) => std::fs::read(path).ok(),
+        },
+    )
 }
 
 pub(crate) fn decode_preview() -> Option<DecodedPreview> {
@@ -58,7 +82,8 @@ pub(crate) fn decode_preview() -> Option<DecodedPreview> {
     let change_count = pasteboard.changeCount();
     // Copy the encoded bytes out of the pasteboard before decoding so a large
     // image is not decoded while AppKit is still holding the original buffer.
-    let source = autoreleasepool(|_| image_source(&pasteboard))?;
+    let cached_path = cached_image_path(change_count);
+    let source = autoreleasepool(|_| image_source(&pasteboard, cached_path.as_deref()))?;
     let decoded = match source {
         ImageSource::Bytes { bytes, is_png } => decode_bytes(bytes, is_png)?,
         ImageSource::File(path) => match read_image_file(&path) {
@@ -78,12 +103,23 @@ pub(crate) fn decode_preview() -> Option<DecodedPreview> {
 }
 
 fn read_image_file(path: &std::path::Path) -> Option<DecodedPreview> {
-    let bytes = std::fs::read(path).ok()?;
     let is_png = path
         .extension()
         .and_then(|ext| ext.to_str())
         .is_some_and(|ext| ext.eq_ignore_ascii_case("png"));
-    decode_bytes(bytes, is_png)
+    if is_png {
+        let bytes = std::fs::read(path).ok()?;
+        return decode_bytes(bytes, true);
+    }
+    if let Some(image) = crate::macos_image_io::preview_from_path(path) {
+        return Some(DecodedPreview {
+            image,
+            source_png: None,
+            change_count: 0,
+        });
+    }
+    let bytes = std::fs::read(path).ok()?;
+    decode_bytes(bytes, false)
 }
 
 pub(crate) fn write_png(bytes: &[u8]) -> Result<(), String> {
@@ -103,31 +139,53 @@ pub(crate) fn write_png(bytes: &[u8]) -> Result<(), String> {
     }
 }
 
-fn read_view(pasteboard: &NSPasteboard) -> ClipboardView {
+fn read_view(pasteboard: &NSPasteboard) -> (ClipboardView, Option<PathBuf>) {
     autoreleasepool(|_| {
         let text = pasteboard_string(pasteboard, unsafe { NSPasteboardTypeString });
+        // Copying a PNG file also puts its name on the pasteboard. That name is
+        // the file, so it still counts as an image. Other text stays text.
+        let copied_file = image_file(pasteboard);
         match text {
-            Some(text) if !text.trim().is_empty() => ClipboardView::Text(text),
+            Some(text)
+                if !text.trim().is_empty()
+                    && !names_copied_image(text.trim(), copied_file.as_deref()) =>
+            {
+                (ClipboardView::Text(text), None)
+            }
             other => {
-                if has_image(pasteboard) {
-                    ClipboardView::Image
+                if copied_file.is_some() || has_image_data(pasteboard) {
+                    (ClipboardView::Image, copied_file)
                 } else if other.is_some() {
-                    ClipboardView::Empty
+                    (ClipboardView::Empty, None)
                 } else {
-                    ClipboardView::NoText
+                    (ClipboardView::NoText, None)
                 }
             }
         }
     })
 }
 
-fn has_image(pasteboard: &NSPasteboard) -> bool {
+fn names_copied_image(text: &str, path: Option<&std::path::Path>) -> bool {
+    let Some(path) = path else {
+        return false;
+    };
+    let full = path.to_string_lossy();
+    if text == full {
+        return true;
+    }
+    if path.file_name().and_then(|name| name.to_str()) == Some(text) {
+        return true;
+    }
+    text.strip_prefix("file://") == Some(full.as_ref())
+}
+
+fn has_image_data(pasteboard: &NSPasteboard) -> bool {
     let jpeg = NSString::from_str("public.jpeg");
     let heic = NSString::from_str("public.heic");
     let types = unsafe {
         NSArray::from_slice(&[NSPasteboardTypePNG, NSPasteboardTypeTIFF, &*jpeg, &*heic])
     };
-    pasteboard.availableTypeFromArray(&types).is_some() || image_file(pasteboard).is_some()
+    pasteboard.availableTypeFromArray(&types).is_some()
 }
 
 enum ImageSource {
@@ -135,7 +193,10 @@ enum ImageSource {
     File(PathBuf),
 }
 
-fn image_source(pasteboard: &NSPasteboard) -> Option<ImageSource> {
+fn image_source(
+    pasteboard: &NSPasteboard,
+    cached_path: Option<&std::path::Path>,
+) -> Option<ImageSource> {
     if has_declared(pasteboard, unsafe { NSPasteboardTypePNG })
         && let Some(bytes) = pasteboard_data(pasteboard, unsafe { NSPasteboardTypePNG })
     {
@@ -152,6 +213,9 @@ fn image_source(pasteboard: &NSPasteboard) -> Option<ImageSource> {
             bytes,
             is_png: false,
         });
+    }
+    if let Some(path) = cached_path {
+        return Some(ImageSource::File(path.to_path_buf()));
     }
     if let Some(path) = image_file(pasteboard) {
         return Some(ImageSource::File(path));
@@ -170,7 +234,8 @@ fn image_source(pasteboard: &NSPasteboard) -> Option<ImageSource> {
 }
 
 fn decode_bytes(bytes: Vec<u8>, is_png: bool) -> Option<DecodedPreview> {
-    let image = image_ops::preview_from_encoded(&bytes)?;
+    let image = crate::macos_image_io::preview_from_bytes(&bytes)
+        .or_else(|| image_ops::preview_from_encoded(&bytes))?;
     let source_png = is_png.then_some(bytes);
     Some(DecodedPreview {
         image,
@@ -197,13 +262,86 @@ fn pasteboard_data(pasteboard: &NSPasteboard, kind: &NSString) -> Option<Vec<u8>
 }
 
 fn image_file(pasteboard: &NSPasteboard) -> Option<PathBuf> {
+    if type_available(pasteboard, unsafe { NSPasteboardTypeFileURL })
+        && let Some(path) = path_from_file_url(pasteboard).filter(|path| is_image_file(path))
+    {
+        return Some(path);
+    }
+    let filenames = NSString::from_str("NSFilenamesPboardType");
+    if type_available(pasteboard, &filenames) {
+        return filenames_image(pasteboard);
+    }
+    None
+}
+
+fn type_available(pasteboard: &NSPasteboard, kind: &NSString) -> bool {
+    let types = NSArray::from_slice(&[kind]);
+    pasteboard.availableTypeFromArray(&types).is_some()
+}
+
+fn path_from_file_url(pasteboard: &NSPasteboard) -> Option<PathBuf> {
     let url = pasteboard_string(pasteboard, unsafe { NSPasteboardTypeFileURL })?;
     let url = NSString::from_str(&url);
     let path = NSURL::URLWithString(&url)?.path()?.to_string();
-    let path = PathBuf::from(path);
-    let ext = path.extension()?.to_str()?;
-    IMAGE_EXTS
-        .iter()
-        .any(|candidate| ext.eq_ignore_ascii_case(candidate))
-        .then_some(path)
+    Some(PathBuf::from(path))
+}
+
+fn filenames_image(pasteboard: &NSPasteboard) -> Option<PathBuf> {
+    let kind = NSString::from_str("NSFilenamesPboardType");
+    let list = pasteboard.propertyListForType(&kind)?;
+    let array = list.downcast::<NSArray>().ok()?;
+    if array.count() != 1 {
+        return None;
+    }
+    let path = PathBuf::from(
+        array
+            .objectAtIndex(0)
+            .downcast::<NSString>()
+            .ok()?
+            .to_string(),
+    );
+    is_image_file(&path).then_some(path)
+}
+
+fn is_image_file(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| {
+            IMAGE_EXTS
+                .iter()
+                .any(|candidate| ext.eq_ignore_ascii_case(candidate))
+        })
+        && path.is_file()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::names_copied_image;
+
+    #[test]
+    fn copied_png_filename_is_the_image() {
+        let path = Path::new("/tmp/ed38402972604e86f4303a04442655a5171d7860.png");
+        assert!(names_copied_image(
+            "ed38402972604e86f4303a04442655a5171d7860.png",
+            Some(path)
+        ));
+        assert!(names_copied_image(
+            "/tmp/ed38402972604e86f4303a04442655a5171d7860.png",
+            Some(path)
+        ));
+        assert!(names_copied_image(
+            "file:///tmp/ed38402972604e86f4303a04442655a5171d7860.png",
+            Some(path)
+        ));
+    }
+
+    #[test]
+    fn document_text_stays_text_when_an_image_file_is_also_present() {
+        let path = Path::new("/tmp/shot.png");
+        assert!(!names_copied_image("hello", Some(path)));
+        assert!(!names_copied_image("shot.png\nmore", Some(path)));
+        assert!(!names_copied_image("shot.png", None));
+    }
 }

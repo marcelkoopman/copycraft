@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::sync::Arc;
 
 use image::ExtendedColorType;
 use image::ImageEncoder;
@@ -107,9 +108,15 @@ impl ClipboardView {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Clone)]
+enum HistoryEntry {
+    Text(String),
+    Image(Arc<[u8]>),
+}
+
+#[derive(Default, Clone)]
 pub struct ClipboardHistory {
-    entries: Vec<String>,
+    entries: Vec<HistoryEntry>,
 }
 
 impl ClipboardHistory {
@@ -117,20 +124,77 @@ impl ClipboardHistory {
         if text.trim().is_empty() {
             return;
         }
-        self.entries.retain(|existing| existing != &text);
-        self.entries.insert(0, text);
+        self.entries.retain(|existing| match existing {
+            HistoryEntry::Text(existing) => existing != &text,
+            HistoryEntry::Image(_) => true,
+        });
+        self.entries.insert(0, HistoryEntry::Text(text));
         self.entries.truncate(MAX_HISTORY);
     }
 
+    pub fn record_image(&mut self, bytes: Vec<u8>) -> Option<Arc<[u8]>> {
+        if bytes.is_empty() {
+            return None;
+        }
+        let bytes = Arc::<[u8]>::from(bytes);
+        self.entries.retain(|existing| match existing {
+            HistoryEntry::Image(existing) => existing.as_ref() != bytes.as_ref(),
+            HistoryEntry::Text(_) => true,
+        });
+        self.entries
+            .insert(0, HistoryEntry::Image(Arc::clone(&bytes)));
+        self.entries.truncate(MAX_HISTORY);
+        Some(bytes)
+    }
+
     pub fn get(&self, index: usize) -> Option<&str> {
-        self.entries.get(index).map(String::as_str)
+        match self.entries.get(index)? {
+            HistoryEntry::Text(text) => Some(text),
+            HistoryEntry::Image(_) => None,
+        }
+    }
+
+    pub fn image(&self, index: usize) -> Option<Arc<[u8]>> {
+        match self.entries.get(index)? {
+            HistoryEntry::Image(bytes) => Some(Arc::clone(bytes)),
+            HistoryEntry::Text(_) => None,
+        }
+    }
+
+    pub fn mark(&self, index: usize) -> Option<&'static str> {
+        match self.entries.get(index)? {
+            HistoryEntry::Text(text) => Some(menu_mark(text)),
+            HistoryEntry::Image(_) => Some(format::FormatKind::Image.menu_symbol()),
+        }
+    }
+
+    /// The current clipboard item stays on the Current row. Older images stay listed.
+    pub fn shows_in_history(
+        &self,
+        index: usize,
+        current_text: Option<&str>,
+        current_image: Option<&Arc<[u8]>>,
+    ) -> bool {
+        match self.entries.get(index) {
+            Some(HistoryEntry::Text(text)) => current_text != Some(text.as_str()),
+            Some(HistoryEntry::Image(bytes)) => {
+                !current_image.is_some_and(|current| Arc::ptr_eq(current, bytes))
+            }
+            None => false,
+        }
     }
 
     pub fn labels(&self) -> Vec<(usize, String)> {
         self.entries
             .iter()
             .enumerate()
-            .map(|(i, text)| (i, one_line(text)))
+            .map(|(i, entry)| {
+                let label = match entry {
+                    HistoryEntry::Text(text) => one_line(text),
+                    HistoryEntry::Image(_) => format::FormatKind::Image.menu_symbol().to_string(),
+                };
+                (i, label)
+            })
             .collect()
     }
 
@@ -324,6 +388,33 @@ mod tests {
         history.record("one".into());
         assert_eq!(history.get(0), Some("one"));
         assert_eq!(history.get(1), Some("two"));
+        assert_eq!(history.labels().len(), 2);
+    }
+
+    #[test]
+    fn history_keeps_an_image_after_later_text() {
+        let mut history = ClipboardHistory::default();
+        let image = history
+            .record_image(vec![137, 80, 78, 71, 13, 10, 26, 10])
+            .expect("image");
+        history.record("hello".into());
+        assert_eq!(history.get(0), Some("hello"));
+        assert!(history.image(1).is_some());
+        assert!(!history.shows_in_history(0, Some("hello"), None));
+        assert!(history.shows_in_history(1, Some("hello"), None));
+        assert!(!history.shows_in_history(1, None, Some(&image)));
+        assert_eq!(history.mark(1), Some("img"));
+        assert_eq!(history.labels()[1].1, "img");
+    }
+
+    #[test]
+    fn history_moves_duplicate_image_to_front() {
+        let mut history = ClipboardHistory::default();
+        history.record_image(vec![1, 2, 3, 4]).expect("image");
+        history.record("hello".into());
+        history.record_image(vec![1, 2, 3, 4]).expect("image");
+        assert!(history.image(0).is_some());
+        assert_eq!(history.get(1), Some("hello"));
         assert_eq!(history.labels().len(), 2);
     }
 

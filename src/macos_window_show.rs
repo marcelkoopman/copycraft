@@ -48,6 +48,32 @@ pub fn show_clipboard_image() -> Result<(), String> {
     Ok(())
 }
 
+pub fn show_stored_image(bytes: Vec<u8>) -> Result<(), String> {
+    begin_image_window()?;
+    let scan_id = IMAGE_SCAN_GEN.load(Ordering::SeqCst);
+    std::thread::spawn(move || {
+        let image = crate::macos_image_io::preview_from_bytes(&bytes)
+            .or_else(|| crate::image_ops::preview_from_encoded(&bytes));
+        let decoded = image.map(|image| {
+            let source_png = bytes
+                .starts_with(&[137, 80, 78, 71, 13, 10, 26, 10])
+                .then_some(bytes);
+            crate::macos_pasteboard::DecodedPreview {
+                image,
+                source_png,
+                change_count: 0,
+            }
+        });
+        if decoded.is_none() {
+            eprintln!("image preview failed");
+        }
+        DispatchQueue::main().exec_async(move || {
+            deliver_clipboard_preview(scan_id, decoded);
+        });
+    });
+    Ok(())
+}
+
 fn begin_image_window() -> Result<(), String> {
     let mtm = MainThreadMarker::new().ok_or("preview must run on the main thread")?;
     let mode = ViewMode::Original;
