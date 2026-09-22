@@ -10,7 +10,7 @@ icon = ["assets/icon.icns"]
 version = "0.1.23"
 category = "Utilities"
 short_description = "Clipboard transformer"
-long_description = "A macOS menubar app that transforms clipboard content into another format, for example JSON formatting."
+long_description = "A macOS clipboard command. A hotkey opens a popup to format, convert, or decode what you copied. The menu bar icon is an optional badge."
 
 [package.metadata.bundle.macos]
 minimum_system_version = "10.13"

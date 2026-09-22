@@ -1,14 +1,12 @@
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use global_hotkey::hotkey::{Code, HotKey, Modifiers};
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use tray_icon::{
-    TrayIcon, TrayIconBuilder, TrayIconEvent,
-    menu::{
-        CheckMenuItem, IconMenuItem, Menu, MenuEvent, MenuItem, NativeIcon, PredefinedMenuItem,
-        Submenu, TextStyle,
-    },
+    MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent,
+    menu::{IconMenuItem, Menu, MenuEvent, MenuItem, NativeIcon, PredefinedMenuItem, TextStyle},
 };
 use winit::{
     application::ApplicationHandler,
@@ -17,10 +15,13 @@ use winit::{
 };
 
 use crate::appearance::{self, Theme};
+use crate::badge;
 use crate::clipboard::{self, ClipboardHistory, ClipboardView};
+use crate::commands::{self, CommandId, Hist, LaunchData, SubjectKind};
 use crate::format;
 use crate::icon;
-use crate::preview;
+use crate::launcher::{self, UserEvent};
+use crate::preview::{self, PreviewAction};
 
 const REFRESH: Duration = Duration::from_millis(400);
 
@@ -30,64 +31,171 @@ struct App {
     current_image: Option<Arc<[u8]>>,
     recorded_image_change: Option<isize>,
     skip_image_change: Option<isize>,
-    last_label: String,
-    history_len: usize,
-    last_kind: Option<format::FormatKind>,
     skip_record: Option<String>,
+    signature: ClipSig,
+    welcomed: bool,
     _hotkeys: GlobalHotKeyManager,
     format_hotkey_id: u32,
 }
 
-impl ApplicationHandler for App {
-    fn resumed(&mut self, _: &ActiveEventLoop) {}
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct ClipSig {
+    text_hash: u64,
+    image: bool,
+    image_change: isize,
+    history_len: usize,
+    badge: bool,
+}
+
+impl Default for ClipSig {
+    fn default() -> Self {
+        Self {
+            text_hash: 0,
+            image: false,
+            image_change: -1,
+            history_len: usize::MAX,
+            badge: !badge::DEFAULT_SHOWN,
+        }
+    }
+}
+
+impl ApplicationHandler<UserEvent> for App {
+    fn resumed(&mut self, _: &ActiveEventLoop) {
+        if self.welcomed {
+            return;
+        }
+        self.welcomed = true;
+        self.reveal_popup();
+    }
 
     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: WindowEvent) {}
 
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
+        match event {
+            UserEvent::Run(id) => self.run_command(event_loop, id),
+        }
+    }
+
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         while let Ok(event) = MenuEvent::receiver().try_recv() {
-            let id = event.id.0.as_str();
-            match id {
+            match event.id.0.as_str() {
                 "quit" => {
                     event_loop.exit();
                     return;
                 }
-                "clear" => self.clear_history(),
-                "clear_clipboard" => self.clear_clipboard(),
-                "current" => self.show_current(),
-                "format_preview" => self.format_and_preview(),
-                id if id.starts_with("hist_") => {
-                    if let Ok(index) = id.trim_start_matches("hist_").parse::<usize>() {
-                        self.show_history(index);
-                    }
-                }
-                id if Theme::from_id(id).is_some() => {
-                    if let Some(theme) = Theme::from_id(id) {
-                        theme.save();
-                        self.rebuild_menu(true);
-                    }
-                }
+                "open" => self.reveal_popup(),
+                "hide_badge" => self.set_badge(false),
                 _ => {}
             }
         }
 
         while let Ok(event) = GlobalHotKeyEvent::receiver().try_recv() {
             if event.id == self.format_hotkey_id && event.state == HotKeyState::Pressed {
-                self.format_and_preview();
+                self.summon_popup();
             }
         }
 
-        while TrayIconEvent::receiver().try_recv().is_ok() {
-            self.rebuild_menu(false);
+        while let Ok(event) = TrayIconEvent::receiver().try_recv() {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                self.reveal_popup();
+            }
         }
 
-        self.rebuild_menu(false);
+        let changed = self.note_clipboard();
+        if changed && launcher::is_open() {
+            let view = ClipboardView::from_os();
+            launcher::sync(self.launch_data(&view));
+        }
         event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + REFRESH));
     }
 }
 
 impl App {
-    fn format_and_preview(&mut self) {
-        self.show_current();
+    fn run_command(&mut self, event_loop: &ActiveEventLoop, id: CommandId) {
+        match id {
+            CommandId::Preview => self.show_current(PreviewAction::Original),
+            CommandId::Format => self.show_current(PreviewAction::Format),
+            CommandId::Convert => self.show_current(PreviewAction::Convert),
+            CommandId::Decode => self.show_current(PreviewAction::Decode),
+            CommandId::Compress => self.show_current(PreviewAction::Compress),
+            CommandId::Redact => self.show_current(PreviewAction::Redact),
+            CommandId::Dataframe => self.show_current(PreviewAction::Dataframe),
+            CommandId::History(index) => self.show_history(index),
+            CommandId::ClearClipboard => self.clear_clipboard(),
+            CommandId::ClearHistory => self.clear_history(),
+            CommandId::ToggleMenuBar => self.set_badge(!badge::is_shown()),
+            CommandId::Appearance(theme) => {
+                theme.save();
+                self.refresh_popup();
+            }
+            CommandId::Quit => event_loop.exit(),
+        }
+    }
+
+    fn summon_popup(&mut self) {
+        let view = ClipboardView::from_os();
+        self.record_current(&view);
+        launcher::summon(self.launch_data(&view));
+    }
+
+    fn reveal_popup(&mut self) {
+        let view = ClipboardView::from_os();
+        self.record_current(&view);
+        launcher::reveal(self.launch_data(&view));
+    }
+
+    fn refresh_popup(&mut self) {
+        if !launcher::is_open() {
+            return;
+        }
+        let view = ClipboardView::from_os();
+        self.record_current(&view);
+        launcher::sync(self.launch_data(&view));
+    }
+
+    fn set_badge(&mut self, shown: bool) {
+        badge::set_shown(shown);
+        if let Err(e) = self.tray.set_visible(shown) {
+            eprintln!("menu bar badge failed: {e}");
+        }
+        self.refresh_popup();
+    }
+
+    fn launch_data(&self, view: &ClipboardView) -> LaunchData {
+        let (subject_kind, subject_text) = match view {
+            ClipboardView::Empty => (SubjectKind::Empty, None),
+            ClipboardView::NoText => (SubjectKind::NoText, None),
+            ClipboardView::Image => (SubjectKind::Image, None),
+            ClipboardView::Text(text) => (SubjectKind::Text, Some(text.clone())),
+        };
+        let current_text = view.text();
+        let history = self
+            .history
+            .labels()
+            .into_iter()
+            .filter(|(index, _)| {
+                self.history
+                    .shows_in_history(*index, current_text, self.current_image.as_ref())
+            })
+            .map(|(index, _)| Hist {
+                index,
+                title: history_title(&self.history, index),
+                mark: self.history.mark(index).unwrap_or("").to_string(),
+            })
+            .collect();
+        LaunchData {
+            subject_kind,
+            subject_text,
+            history,
+            can_clear_history: !self.history.is_empty(),
+            menu_bar_shown: badge::is_shown(),
+            theme: Theme::load(),
+        }
     }
 
     fn clear_history(&mut self) {
@@ -101,9 +209,6 @@ impl App {
         }
         self.current_image = None;
         self.history.clear();
-        self.last_label.clear();
-        self.history_len = 0;
-        self.rebuild_menu(true);
     }
 
     fn clear_clipboard(&mut self) {
@@ -112,22 +217,20 @@ impl App {
             return;
         }
         self.skip_record = Some(String::new());
-        self.last_label.clear();
-        self.rebuild_menu(true);
     }
 
     fn should_record(&self, text: &str) -> bool {
         self.skip_record.as_deref() != Some(text)
     }
 
-    fn show_current(&mut self) {
+    fn show_current(&mut self, action: PreviewAction) {
         let view = ClipboardView::from_os();
         if view.is_image() {
             self.open_image_preview();
             return;
         }
         if let Some(text) = view.text() {
-            self.open_preview(text);
+            self.open_preview(text, action);
         }
     }
 
@@ -137,30 +240,27 @@ impl App {
             return;
         }
         if let Some(text) = self.history.get(index).map(str::to_string) {
-            self.open_preview(&text);
+            self.open_preview(&text, PreviewAction::Original);
         }
     }
 
-    fn open_preview(&mut self, text: &str) {
+    fn open_preview(&mut self, text: &str, action: PreviewAction) {
         let kind = format::detect(text);
-        if let Err(e) = preview::show(text, kind) {
+        if let Err(e) = preview::show_action(text, kind, action) {
             eprintln!("preview failed: {e}");
         }
-        self.rebuild_menu(true);
     }
 
     fn open_image_preview(&mut self) {
         if let Err(e) = preview::show_clipboard_image() {
             eprintln!("preview failed: {e}");
         }
-        self.rebuild_menu(true);
     }
 
     fn open_stored_image(&mut self, bytes: Arc<[u8]>) {
         if let Err(e) = preview::show_stored_image(bytes.to_vec()) {
             eprintln!("preview failed: {e}");
         }
-        self.rebuild_menu(true);
     }
 
     fn record_current(&mut self, view: &ClipboardView) {
@@ -186,127 +286,45 @@ impl App {
         }
     }
 
-    fn rebuild_menu(&mut self, force: bool) {
+    fn note_clipboard(&mut self) -> bool {
         let view = ClipboardView::from_os();
         self.record_current(&view);
-
-        let label = view.label();
-        let current_text = view.text();
-        let history_len = self
-            .history
-            .labels()
-            .into_iter()
-            .filter(|(index, _)| {
-                self.history
-                    .shows_in_history(*index, current_text, self.current_image.as_ref())
-            })
-            .count();
-        let kind = match &view {
-            ClipboardView::Text(text) => Some(format::detect(text)),
-            ClipboardView::Image => Some(format::FormatKind::Image),
-            ClipboardView::Empty | ClipboardView::NoText => None,
+        #[cfg(target_os = "macos")]
+        let image_change = crate::macos_pasteboard::change_count();
+        #[cfg(not(target_os = "macos"))]
+        let image_change = 0;
+        let signature = ClipSig {
+            text_hash: hash_text(view.text().unwrap_or("")),
+            image: view.is_image(),
+            image_change,
+            history_len: self.history.labels().len(),
+            badge: badge::is_shown(),
         };
-        if !force
-            && label == self.last_label
-            && history_len == self.history_len
-            && kind == self.last_kind
-        {
-            return;
+        if signature == self.signature {
+            return false;
         }
-        self.last_label = label.clone();
-        self.history_len = history_len;
-        if force || kind != self.last_kind {
-            self.last_kind = kind;
-            let accent = icon::accent_for_kind(kind);
-            match icon::menu_icon_tinted(accent) {
-                Ok(tray_icon) => {
-                    if let Err(e) = self.tray.set_icon_with_as_template(Some(tray_icon), false) {
-                        eprintln!("set tray icon failed: {e}");
-                    }
-                }
-                Err(e) => eprintln!("build tray icon failed: {e}"),
-            }
-        }
-
-        let history_rows: Vec<(usize, String)> = self
-            .history
-            .labels()
-            .into_iter()
-            .filter(|(index, _)| {
-                self.history
-                    .shows_in_history(*index, current_text, self.current_image.as_ref())
-            })
-            .collect();
-
-        let menu = Menu::new();
-        let _ = menu.append(&MenuItem::new("Current", false, None));
-        let current = clipboard_entry_item(
-            "current",
-            format!("• {label}"),
-            view.is_previewable(),
-            view.type_mark(),
-            true,
-        );
-        let _ = menu.append(&current);
-        let _ = menu.append(&PredefinedMenuItem::separator());
-        let history_title = if history_rows.is_empty() {
-            "History".to_string()
-        } else {
-            format!("History ({})", history_rows.len())
-        };
-        let _ = menu.append(&MenuItem::new(history_title, false, None));
-
-        if history_rows.is_empty() {
-            let _ = menu.append(&MenuItem::new("(no history yet)", false, None));
-        } else {
-            for (index, item_label) in history_rows {
-                let item = clipboard_entry_item(
-                    &format!("hist_{index}"),
-                    item_label,
-                    true,
-                    self.history.mark(index),
-                    false,
-                );
-                let _ = menu.append(&item);
-            }
-        }
-
-        let _ = menu.append(&PredefinedMenuItem::separator());
-        let _ = menu.append(&MenuItem::with_id(
-            "format_preview",
-            "Format & preview    ⌃⌥⌘F",
-            true,
-            None,
-        ));
-        let _ = menu.append(&appearance_menu());
-        let _ = menu.append(&PredefinedMenuItem::separator());
-        let _ = menu.append(&IconMenuItem::with_id_and_native_icon(
-            "clear_clipboard",
-            "Clear clipboard",
-            view.is_previewable(),
-            Some(NativeIcon::TrashEmpty),
-            None,
-        ));
-        let _ = menu.append(&IconMenuItem::with_id_and_native_icon(
-            "clear",
-            "Clear history",
-            !self.history.is_empty(),
-            Some(NativeIcon::TrashFull),
-            None,
-        ));
-        let _ = menu.append(&PredefinedMenuItem::separator());
-        let _ = menu.append(&version_item());
-        let _ = menu.append(&IconMenuItem::with_id_and_native_icon(
-            "quit",
-            "Quit",
-            true,
-            Some(NativeIcon::StopProgress),
-            None,
-        ));
-        self.tray.set_menu(Some(Box::new(menu)));
-        let _ = self.tray.set_tooltip(Some("Copycraft"));
-        self.tray.set_title(None::<&str>);
+        self.signature = signature;
+        true
     }
+}
+
+fn history_title(history: &ClipboardHistory, index: usize) -> String {
+    if let Some(text) = history.get(index) {
+        let body = commands::snippet(text);
+        if body.is_empty() {
+            history.mark(index).unwrap_or("").to_string()
+        } else {
+            body
+        }
+    } else {
+        "Image".to_string()
+    }
+}
+
+fn hash_text(text: &str) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    text.hash(&mut hasher);
+    hasher.finish()
 }
 
 fn version_label() -> String {
@@ -320,58 +338,25 @@ fn version_item() -> MenuItem {
     item
 }
 
-fn appearance_menu() -> Submenu {
-    let current = Theme::load();
-    let menu = Submenu::new("Appearance", true);
-    let _ = menu.append(&CheckMenuItem::with_id(
-        Theme::System.as_id(),
-        "System",
+fn badge_menu() -> Menu {
+    let menu = Menu::new();
+    let _ = menu.append(&MenuItem::with_id("open", "Open    ⌃⌥⌘F", true, None));
+    let _ = menu.append(&MenuItem::with_id(
+        "hide_badge",
+        "Hide menu bar icon",
         true,
-        current == Theme::System,
         None,
     ));
-    let _ = menu.append(&CheckMenuItem::with_id(
-        Theme::Light.as_id(),
-        "Light",
+    let _ = menu.append(&PredefinedMenuItem::separator());
+    let _ = menu.append(&version_item());
+    let _ = menu.append(&IconMenuItem::with_id_and_native_icon(
+        "quit",
+        "Quit",
         true,
-        current == Theme::Light,
-        None,
-    ));
-    let _ = menu.append(&CheckMenuItem::with_id(
-        Theme::Dark.as_id(),
-        "Dark",
-        true,
-        current == Theme::Dark,
+        Some(NativeIcon::StopProgress),
         None,
     ));
     menu
-}
-
-fn clipboard_entry_item(
-    id: &str,
-    title: String,
-    enabled: bool,
-    mark: Option<&str>,
-    current: bool,
-) -> MenuItem {
-    let item = MenuItem::with_id(id, &title, enabled, None);
-    style_entry_item(&item, mark, current);
-    item
-}
-
-fn style_entry_item(item: &MenuItem, mark: Option<&str>, current: bool) {
-    let Some(mark) = mark else {
-        return;
-    };
-    let mark = mark.to_string();
-    if current {
-        item.set_styled_text(vec![
-            ("• ".to_string(), TextStyle::Default),
-            (mark, TextStyle::Secondary),
-        ]);
-    } else {
-        item.set_styled_text(vec![(mark, TextStyle::Secondary)]);
-    }
 }
 
 fn register_format_hotkey() -> Result<(GlobalHotKeyManager, u32), Box<dyn std::error::Error>> {
@@ -389,16 +374,19 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     appearance::apply(Theme::load());
     let (hotkeys, format_hotkey_id) = register_format_hotkey()?;
     let icon = icon::menu_icon()?;
-    let menu = Menu::new();
-    let _ = menu.append(&MenuItem::new("Clipboard", false, None));
-    let _ = menu.append(&MenuItem::with_id("quit", "Quit", true, None));
-
     let tray = TrayIconBuilder::new()
         .with_icon(icon)
         .with_icon_as_template(false)
-        .with_menu(Box::new(menu))
+        .with_menu(Box::new(badge_menu()))
+        .with_menu_on_left_click(false)
         .with_tooltip("Copycraft")
         .build()?;
+    if !badge::is_shown() {
+        tray.set_visible(false)?;
+    }
+
+    let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
+    launcher::install_proxy(event_loop.create_proxy());
 
     let mut app = App {
         tray,
@@ -406,16 +394,12 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         current_image: None,
         recorded_image_change: None,
         skip_image_change: None,
-        last_label: String::new(),
-        history_len: 0,
-        last_kind: None,
         skip_record: None,
+        signature: ClipSig::default(),
+        welcomed: false,
         _hotkeys: hotkeys,
         format_hotkey_id,
     };
-    app.rebuild_menu(true);
-
-    let event_loop = EventLoop::new()?;
     event_loop.run_app(&mut app)?;
     Ok(())
 }

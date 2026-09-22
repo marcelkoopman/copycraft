@@ -8,6 +8,7 @@ pub enum Theme {
 const DEFAULTS_KEY: &str = "CopycraftAppearance";
 
 impl Theme {
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn as_id(self) -> &'static str {
         match self {
             Self::System => "theme_system",
@@ -16,6 +17,7 @@ impl Theme {
         }
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn from_id(id: &str) -> Option<Self> {
         match id {
             "theme_system" => Some(Self::System),

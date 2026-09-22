@@ -86,10 +86,12 @@ impl ClipboardView {
         matches!(self, Self::Image)
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn is_previewable(&self) -> bool {
         matches!(self, Self::Text(_) | Self::Image)
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn type_mark(&self) -> Option<&'static str> {
         match self {
             Self::Text(text) => Some(menu_mark(text)),
@@ -98,6 +100,7 @@ impl ClipboardView {
         }
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn label(&self) -> String {
         match self {
             Self::Empty => "(clipboard is empty)".to_string(),

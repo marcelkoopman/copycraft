@@ -66,32 +66,17 @@ define_class!(
 
         #[unsafe(method(originalClicked:))]
         fn original_clicked(&self, _sender: Option<&AnyObject>) {
-            select_mode(ViewMode::Original);
-            if source_is_image() {
-                apply_image_preview();
-                return;
-            }
-            let body = SOURCE_TEXT.with(|src| src.borrow().clone());
-            apply_preview(&body);
+            run_original();
         }
 
         #[unsafe(method(formatClicked:))]
         fn format_clicked(&self, _sender: Option<&AnyObject>) {
-            let body = SOURCE_TEXT.with(|src| clipboard::formatted(&src.borrow()));
-            select_mode(ViewMode::Format);
-            apply_preview(&body);
+            run_format();
         }
 
         #[unsafe(method(convertClicked:))]
         fn convert_clicked(&self, _sender: Option<&AnyObject>) {
-            let body = SOURCE_TEXT.with(|src| convert::try_convert(&src.borrow()));
-            let Some(body) = body else {
-                flash_button(&CONVERT_BUTTON, "Failed", "Convert", error_flash_color(), true);
-                reset_later(self, sel!(resetConvertLabel:));
-                return;
-            };
-            select_mode(ViewMode::Convert);
-            apply_preview(&clipboard::formatted(&body));
+            run_convert();
         }
 
         #[unsafe(method(resetConvertLabel:))]
@@ -101,14 +86,7 @@ define_class!(
 
         #[unsafe(method(decodeClicked:))]
         fn decode_clicked(&self, _sender: Option<&AnyObject>) {
-            let body = SOURCE_TEXT.with(|src| decode::try_decode(&src.borrow()));
-            let Some(body) = body else {
-                flash_button(&DECODE_BUTTON, "Failed", "Decode", error_flash_color(), true);
-                reset_later(self, sel!(resetDecodeLabel:));
-                return;
-            };
-            select_mode(ViewMode::Decode);
-            apply_preview(&clipboard::formatted(&body));
+            run_decode();
         }
 
         #[unsafe(method(resetDecodeLabel:))]
@@ -118,24 +96,7 @@ define_class!(
 
         #[unsafe(method(compressClicked:))]
         fn compress_clicked(&self, _sender: Option<&AnyObject>) {
-            if source_is_image() {
-                if IMAGE_JPEG.with(|slot| slot.borrow().is_none()) {
-                    flash_button(&COMPRESS_BUTTON, "Failed", "Compress", error_flash_color(), true);
-                    reset_later(self, sel!(resetCompressLabel:));
-                    return;
-                }
-                select_mode(ViewMode::Compress);
-                apply_image_preview();
-                return;
-            }
-            let body = SOURCE_TEXT.with(|src| compress::try_compress(&src.borrow()));
-            let Some(body) = body else {
-                flash_button(&COMPRESS_BUTTON, "Failed", "Compress", error_flash_color(), true);
-                reset_later(self, sel!(resetCompressLabel:));
-                return;
-            };
-            select_mode(ViewMode::Compress);
-            apply_preview(&body);
+            run_compress();
         }
 
         #[unsafe(method(infoClicked:))]
@@ -198,21 +159,12 @@ define_class!(
 
         #[unsafe(method(redactClicked:))]
         fn redact_clicked(&self, _sender: Option<&AnyObject>) {
-            let body = SOURCE_TEXT.with(|src| redact::redact(&src.borrow()));
-            select_mode(ViewMode::Redact);
-            apply_preview(&body);
+            run_redact();
         }
 
         #[unsafe(method(dataframeClicked:))]
         fn dataframe_clicked(&self, _sender: Option<&AnyObject>) {
-            let body = SOURCE_TEXT.with(|src| dataframe::try_format(&src.borrow()));
-            let Some(body) = body else {
-                flash_button(&DATAFRAME_BUTTON, "Failed", "Dataframe", error_flash_color(), true);
-                reset_later(self, sel!(resetDataframeLabel:));
-                return;
-            };
-            select_mode(ViewMode::Dataframe);
-            apply_preview_with_kind(&body, FormatKind::Dataframe);
+            run_dataframe();
         }
 
         #[unsafe(method(resetDataframeLabel:))]
@@ -240,6 +192,107 @@ define_class!(
         }
     }
 );
+
+fn current_target() -> Option<Retained<PreviewTarget>> {
+    TARGET.with(|slot| slot.borrow().clone())
+}
+
+fn fail_mode(slot: &'static std::thread::LocalKey<RefCell<Option<Retained<NSButton>>>>, failed: &str, label: &str, selector: objc2::runtime::Sel) {
+    flash_button(slot, failed, label, error_flash_color(), true);
+    if let Some(target) = current_target() {
+        reset_later(&target, selector);
+    }
+}
+
+fn run_original() {
+    select_mode(ViewMode::Original);
+    if source_is_image() {
+        apply_image_preview();
+        return;
+    }
+    let body = SOURCE_TEXT.with(|src| src.borrow().clone());
+    apply_preview(&body);
+}
+
+fn run_format() {
+    let body = SOURCE_TEXT.with(|src| clipboard::formatted(&src.borrow()));
+    select_mode(ViewMode::Format);
+    apply_preview(&body);
+}
+
+fn run_convert() {
+    let body = SOURCE_TEXT.with(|src| convert::try_convert(&src.borrow()));
+    let Some(body) = body else {
+        fail_mode(&CONVERT_BUTTON, "Failed", "Convert", sel!(resetConvertLabel:));
+        return;
+    };
+    select_mode(ViewMode::Convert);
+    apply_preview(&clipboard::formatted(&body));
+}
+
+fn run_decode() {
+    let body = SOURCE_TEXT.with(|src| decode::try_decode(&src.borrow()));
+    let Some(body) = body else {
+        fail_mode(&DECODE_BUTTON, "Failed", "Decode", sel!(resetDecodeLabel:));
+        return;
+    };
+    select_mode(ViewMode::Decode);
+    apply_preview(&clipboard::formatted(&body));
+}
+
+fn run_compress() {
+    if source_is_image() {
+        if IMAGE_JPEG.with(|slot| slot.borrow().is_none()) {
+            fail_mode(&COMPRESS_BUTTON, "Failed", "Compress", sel!(resetCompressLabel:));
+            return;
+        }
+        select_mode(ViewMode::Compress);
+        apply_image_preview();
+        return;
+    }
+    let body = SOURCE_TEXT.with(|src| compress::try_compress(&src.borrow()));
+    let Some(body) = body else {
+        fail_mode(&COMPRESS_BUTTON, "Failed", "Compress", sel!(resetCompressLabel:));
+        return;
+    };
+    select_mode(ViewMode::Compress);
+    apply_preview(&body);
+}
+
+fn run_redact() {
+    let body = SOURCE_TEXT.with(|src| redact::redact(&src.borrow()));
+    select_mode(ViewMode::Redact);
+    apply_preview(&body);
+}
+
+fn run_dataframe() {
+    let body = SOURCE_TEXT.with(|src| dataframe::try_format(&src.borrow()));
+    let Some(body) = body else {
+        fail_mode(
+            &DATAFRAME_BUTTON,
+            "Failed",
+            "Dataframe",
+            sel!(resetDataframeLabel:),
+        );
+        return;
+    };
+    select_mode(ViewMode::Dataframe);
+    apply_preview_with_kind(&body, FormatKind::Dataframe);
+}
+
+pub fn show_action(source: &str, kind: FormatKind, action: PreviewAction) -> Result<(), String> {
+    show(source, kind)?;
+    match action {
+        PreviewAction::Original => run_original(),
+        PreviewAction::Format => run_format(),
+        PreviewAction::Convert => run_convert(),
+        PreviewAction::Decode => run_decode(),
+        PreviewAction::Compress => run_compress(),
+        PreviewAction::Redact => run_redact(),
+        PreviewAction::Dataframe => run_dataframe(),
+    }
+    Ok(())
+}
 
 impl PreviewTarget {
     fn new(mtm: MainThreadMarker) -> Retained<Self> {
