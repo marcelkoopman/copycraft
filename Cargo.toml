@@ -10,7 +10,7 @@ icon = ["assets/icon.icns"]
 version = "0.1.24"
 category = "Utilities"
 short_description = "Clipboard transformer"
-long_description = "A macOS clipboard command. A hotkey opens a popup to format, convert, or decode what you copied. The menu bar icon is an optional badge."
+long_description = "A macOS clipboard command. A hotkey opens a card at the cursor for what you copied. The menu bar icon is an optional badge."
 
 [package.metadata.bundle.macos]
 minimum_system_version = "10.13"
@@ -43,6 +43,9 @@ objc2-app-kit = { version = "0.3", features = [
     "NSPasteboard",
     "NSButton",
     "NSCell",
+    "NSEvent",
+    "NSMenu",
+    "NSMenuItem",
     "NSColor",
     "NSControl",
     "NSFont",

@@ -1,6 +1,6 @@
 # copycraft
 
-macOS clipboard command. ⌃⌥⌘F opens a popup to format, convert, or decode what you copied. The menu bar icon is an optional badge.
+macOS clipboard command. ⌃⌥⌘F opens a card at the cursor for what you copied. Type to search. The menu bar icon is an optional badge.
 
 ## Downloads
 

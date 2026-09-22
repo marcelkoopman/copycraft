@@ -126,6 +126,9 @@ impl App {
             CommandId::Redact => self.show_current(PreviewAction::Redact),
             CommandId::Dataframe => self.show_current(PreviewAction::Dataframe),
             CommandId::History(index) => self.show_history(index),
+            CommandId::ImageBase64 => self.copy_image_text(false),
+            CommandId::ImageDataUrl => self.copy_image_text(true),
+            CommandId::ImageFile => self.copy_image_file(),
             CommandId::ClearClipboard => self.clear_clipboard(),
             CommandId::ClearHistory => self.clear_history(),
             CommandId::ToggleMenuBar => self.set_badge(!badge::is_shown()),
@@ -191,10 +194,40 @@ impl App {
         LaunchData {
             subject_kind,
             subject_text,
+            image: image_facts(view),
             history,
             can_clear_history: !self.history.is_empty(),
             menu_bar_shown: badge::is_shown(),
             theme: Theme::load(),
+        }
+    }
+
+    fn copy_image_text(&mut self, data_url: bool) {
+        #[cfg(target_os = "macos")]
+        {
+            let Some(text) = crate::macos_pasteboard::image_as_text(data_url) else {
+                eprintln!("image encoding failed");
+                return;
+            };
+            self.skip_record = Some(text.clone());
+            if let Err(e) = clipboard::write_clipboard(&text) {
+                eprintln!("copy image text failed: {e}");
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = data_url;
+        }
+    }
+
+    fn copy_image_file(&mut self) {
+        #[cfg(target_os = "macos")]
+        {
+            if let Err(e) = crate::macos_pasteboard::copy_image_file() {
+                eprintln!("copy image file failed: {e}");
+                return;
+            }
+            self.skip_image_change = Some(crate::macos_pasteboard::change_count());
         }
     }
 
@@ -305,6 +338,20 @@ impl App {
         }
         self.signature = signature;
         true
+    }
+}
+
+fn image_facts(view: &ClipboardView) -> Option<commands::ImageFacts> {
+    if !view.is_image() {
+        return None;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        crate::macos_pasteboard::image_facts()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
     }
 }
 

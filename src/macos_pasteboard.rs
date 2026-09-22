@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+use base64::Engine;
 use objc2::rc::autoreleasepool;
 use objc2_app_kit::{
     NSPasteboard, NSPasteboardTypeFileURL, NSPasteboardTypePNG, NSPasteboardTypeString,
@@ -11,6 +12,7 @@ use objc2_app_kit::{
 use objc2_foundation::{NSArray, NSData, NSString, NSURL};
 
 use crate::clipboard::{ClipboardImage, ClipboardView};
+use crate::commands::ImageFacts;
 use crate::image_ops;
 
 const IMAGE_EXTS: &[&str] = &[
@@ -24,6 +26,15 @@ struct CachedView {
 }
 
 static CACHE: Mutex<Option<CachedView>> = Mutex::new(None);
+
+#[derive(Clone)]
+struct CardSnap {
+    change_count: isize,
+    facts: ImageFacts,
+    thumbnail: ClipboardImage,
+}
+
+static CARD: Mutex<Option<CardSnap>> = Mutex::new(None);
 
 pub(crate) struct DecodedPreview {
     pub image: ClipboardImage,
@@ -129,13 +140,227 @@ pub(crate) fn write_png(bytes: &[u8]) -> Result<(), String> {
         pasteboard.clearContents();
         pasteboard.setData_forType(Some(&data), NSPasteboardTypePNG)
     };
-    if let Ok(mut guard) = CACHE.lock() {
-        *guard = None;
-    }
+    invalidate_caches();
     if ok {
         Ok(())
     } else {
         Err("could not write image".into())
+    }
+}
+
+pub(crate) fn image_facts() -> Option<ImageFacts> {
+    card_snap().map(|snap| snap.facts)
+}
+
+pub(crate) fn image_thumbnail() -> Option<ClipboardImage> {
+    card_snap().map(|snap| snap.thumbnail)
+}
+
+pub(crate) fn image_as_text(data_url: bool) -> Option<String> {
+    let exported = export_image()?;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(&exported.bytes);
+    if data_url {
+        Some(format!("data:{};base64,{encoded}", exported.mime))
+    } else {
+        Some(encoded)
+    }
+}
+
+pub(crate) fn copy_image_file() -> Result<(), String> {
+    let exported = export_image().ok_or_else(|| "no image".to_string())?;
+    let path = if let Some(path) = exported.path {
+        path
+    } else {
+        let path = std::env::temp_dir().join(format!("copycraft.{}", exported.extension));
+        std::fs::write(&path, &exported.bytes).map_err(|err| err.to_string())?;
+        path
+    };
+    set_file_url(&path)
+}
+
+fn card_snap() -> Option<CardSnap> {
+    let change_count = change_count();
+    if let Some(cached) = cached_card(change_count) {
+        return Some(cached);
+    }
+    let built = build_card(change_count)?;
+    if let Ok(mut guard) = CARD.lock() {
+        *guard = Some(built.clone());
+    }
+    Some(built)
+}
+
+fn cached_card(change_count: isize) -> Option<CardSnap> {
+    let guard = CARD.lock().ok()?;
+    let cached = guard.as_ref()?;
+    (cached.change_count == change_count).then(|| cached.clone())
+}
+
+fn build_card(change_count: isize) -> Option<CardSnap> {
+    let pasteboard = NSPasteboard::generalPasteboard();
+    let cached_path = cached_image_path(change_count);
+    let source = autoreleasepool(|_| image_source(&pasteboard, cached_path.as_deref()))?;
+    let (byte_len, label_hint, thumbnail) = match source {
+        ImageSource::Bytes { bytes, is_png } => {
+            let len = bytes.len();
+            let label = sniff_image(&bytes, is_png).0;
+            let thumbnail = crate::macos_image_io::preview_from_bytes(&bytes)
+                .or_else(|| image_ops::preview_from_encoded(&bytes))?;
+            (len, label, thumbnail)
+        }
+        ImageSource::File(path) => {
+            let len = std::fs::metadata(&path)
+                .ok()
+                .and_then(|meta| usize::try_from(meta.len()).ok())
+                .unwrap_or(0);
+            let label = extension_label(&path);
+            let thumbnail = crate::macos_image_io::preview_from_path(&path).or_else(|| {
+                let bytes = std::fs::read(&path).ok()?;
+                image_ops::preview_from_encoded(&bytes)
+            })?;
+            (len, label, thumbnail)
+        }
+    };
+    Some(CardSnap {
+        change_count,
+        facts: ImageFacts {
+            format: label_hint.to_string(),
+            width: thumbnail.full_width,
+            height: thumbnail.full_height,
+            byte_len,
+        },
+        thumbnail,
+    })
+}
+
+struct ImageExport {
+    bytes: Vec<u8>,
+    mime: &'static str,
+    extension: &'static str,
+    path: Option<PathBuf>,
+}
+
+fn export_image() -> Option<ImageExport> {
+    let pasteboard = NSPasteboard::generalPasteboard();
+    let change_count = pasteboard.changeCount();
+    let cached_path = cached_image_path(change_count);
+    let source = autoreleasepool(|_| image_source(&pasteboard, cached_path.as_deref()))?;
+    match source {
+        ImageSource::Bytes { bytes, is_png } => {
+            let (label, mime) = sniff_image(&bytes, is_png);
+            Some(ImageExport {
+                bytes,
+                mime,
+                extension: extension_for(label),
+                path: None,
+            })
+        }
+        ImageSource::File(path) => {
+            let bytes = std::fs::read(&path).ok()?;
+            let from_ext = extension_label(&path);
+            let (sniffed, _) = sniff_image(&bytes, from_ext == "PNG");
+            let label = if sniffed != "TIFF" {
+                sniffed
+            } else if from_ext != "Image" {
+                from_ext
+            } else {
+                sniffed
+            };
+            Some(ImageExport {
+                bytes,
+                mime: mime_for(label),
+                extension: extension_for(label),
+                path: Some(path),
+            })
+        }
+    }
+}
+
+fn set_file_url(path: &std::path::Path) -> Result<(), String> {
+    let text = path.to_str().ok_or_else(|| "path".to_string())?;
+    let url = NSURL::fileURLWithPath(&NSString::from_str(text));
+    let absolute = url
+        .absoluteString()
+        .ok_or_else(|| "url".to_string())?
+        .to_string();
+    let pasteboard = NSPasteboard::generalPasteboard();
+    pasteboard.clearContents();
+    let ok = pasteboard.setString_forType(&NSString::from_str(&absolute), unsafe {
+        NSPasteboardTypeFileURL
+    });
+    invalidate_caches();
+    if ok {
+        Ok(())
+    } else {
+        Err("could not copy file".into())
+    }
+}
+
+fn invalidate_caches() {
+    if let Ok(mut guard) = CACHE.lock() {
+        *guard = None;
+    }
+    if let Ok(mut guard) = CARD.lock() {
+        *guard = None;
+    }
+}
+
+fn sniff_image(bytes: &[u8], hint_png: bool) -> (&'static str, &'static str) {
+    if hint_png || bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
+        return ("PNG", "image/png");
+    }
+    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return ("JPEG", "image/jpeg");
+    }
+    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        return ("GIF", "image/gif");
+    }
+    if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        return ("WEBP", "image/webp");
+    }
+    ("TIFF", "image/tiff")
+}
+
+fn extension_label(path: &std::path::Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "png" => "PNG",
+        "jpg" | "jpeg" => "JPEG",
+        "gif" => "GIF",
+        "webp" => "WEBP",
+        "heic" => "HEIC",
+        "bmp" => "BMP",
+        "tif" | "tiff" => "TIFF",
+        _ => "Image",
+    }
+}
+
+fn extension_for(label: &str) -> &'static str {
+    match label {
+        "JPEG" => "jpg",
+        "GIF" => "gif",
+        "WEBP" => "webp",
+        "HEIC" => "heic",
+        "BMP" => "bmp",
+        "TIFF" => "tiff",
+        _ => "png",
+    }
+}
+
+fn mime_for(label: &str) -> &'static str {
+    match label {
+        "JPEG" => "image/jpeg",
+        "GIF" => "image/gif",
+        "WEBP" => "image/webp",
+        "HEIC" => "image/heic",
+        "BMP" => "image/bmp",
+        "TIFF" => "image/tiff",
+        _ => "image/png",
     }
 }
 
@@ -318,7 +543,7 @@ fn is_image_file(path: &std::path::Path) -> bool {
 mod tests {
     use std::path::Path;
 
-    use super::names_copied_image;
+    use super::{extension_label, names_copied_image, sniff_image};
 
     #[test]
     fn copied_png_filename_is_the_image() {
@@ -335,6 +560,13 @@ mod tests {
             "file:///tmp/ed38402972604e86f4303a04442655a5171d7860.png",
             Some(path)
         ));
+    }
+
+    #[test]
+    fn sniff_names_png_jpeg_and_a_heic_file() {
+        assert_eq!(sniff_image(b"\x89PNG\r\n", true).0, "PNG");
+        assert_eq!(sniff_image(&[0xFF, 0xD8, 0xFF, 0], false).0, "JPEG");
+        assert_eq!(extension_label(Path::new("/tmp/shot.heic")), "HEIC");
     }
 
     #[test]
