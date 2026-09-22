@@ -86,6 +86,7 @@ impl FormatKind {
         format!("clipboard.{}", self.suggested_extension())
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn accent_rgba(self) -> Option<[u8; 4]> {
         match self {
             Self::Json => Some([245, 197, 66, 255]),

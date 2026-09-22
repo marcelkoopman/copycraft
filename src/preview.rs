@@ -1,6 +1,18 @@
 use crate::clipboard::ClipboardImage;
 use crate::format::FormatKind;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PreviewAction {
+    Original,
+    Format,
+    Convert,
+    Decode,
+    Compress,
+    Redact,
+    Dataframe,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
@@ -9,6 +21,18 @@ pub fn show(formatted: &str, kind: FormatKind) -> Result<(), String> {
     #[cfg(not(target_os = "macos"))]
     {
         let _ = (formatted, kind);
+        Err("native preview is macOS-only".into())
+    }
+}
+
+pub fn show_action(source: &str, kind: FormatKind, action: PreviewAction) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        crate::macos_window::show_action(source, kind, action)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (source, kind, action);
         Err("native preview is macOS-only".into())
     }
 }

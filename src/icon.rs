@@ -1,7 +1,5 @@
 use tray_icon::Icon;
 
-use crate::format::FormatKind;
-
 const SIZE: u32 = 32;
 const DEFAULT_ACCENT: [u8; 4] = [96, 140, 255, 255];
 const DEFAULT_TEAL: [u8; 4] = [45, 196, 176, 255];
@@ -20,10 +18,6 @@ pub fn menu_icon_tinted(accent: Option<[u8; 4]>) -> Result<Icon, Box<dyn std::er
     draw_brace_left(&mut rgba, companion_accent(accent));
     draw_brace_right(&mut rgba, accent);
     Ok(Icon::from_rgba(rgba, SIZE, SIZE)?)
-}
-
-pub fn accent_for_kind(kind: Option<FormatKind>) -> Option<[u8; 4]> {
-    kind.and_then(FormatKind::accent_rgba)
 }
 
 fn companion_accent(accent: [u8; 4]) -> [u8; 4] {
