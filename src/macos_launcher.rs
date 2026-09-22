@@ -6,10 +6,11 @@ use objc2::rc::Retained;
 use objc2::runtime::{NSObject, Sel};
 use objc2::{MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSBackingStoreType, NSButton, NSColor, NSControl, NSFloatingWindowLevel, NSFocusRingType,
-    NSFont, NSLineBreakMode, NSScreen, NSTextAlignment, NSTextField, NSTextView, NSView,
-    NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView,
-    NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask,
+    NSBackingStoreType, NSBox, NSBoxType, NSButton, NSColor, NSControl, NSFloatingWindowLevel,
+    NSFocusRingType, NSFont, NSLineBreakMode, NSScreen, NSTextAlignment, NSTextField, NSTextView,
+    NSTitlePosition, NSView, NSVisualEffectBlendingMode, NSVisualEffectMaterial,
+    NSVisualEffectState, NSVisualEffectView, NSWindow, NSWindowCollectionBehavior,
+    NSWindowStyleMask,
 };
 use objc2_foundation::{NSNotification, NSPoint, NSRect, NSSize, NSString};
 
@@ -401,8 +402,20 @@ fn rebuild_rows(mtm: MainThreadMarker, list: &NSView, visible: &[Command]) {
                 NSSize::new(WIDTH - 12.0, ROW_H - 4.0),
             ),
         );
-        row.setWantsLayer(true);
-        round_view(&row, 8.0);
+        let fill = NSBox::initWithFrame(
+            NSBox::alloc(mtm),
+            NSRect::new(
+                NSPoint::new(0.0, 0.0),
+                NSSize::new(WIDTH - 12.0, ROW_H - 4.0),
+            ),
+        );
+        fill.setBoxType(NSBoxType::Custom);
+        fill.setBorderWidth(0.0);
+        fill.setCornerRadius(8.0);
+        fill.setTitlePosition(NSTitlePosition::NoTitle);
+        fill.setContentViewMargins(NSSize::new(0.0, 0.0));
+        fill.setFillColor(&NSColor::clearColor());
+        row.addSubview(&fill);
 
         let title = static_label(mtm, 14.0, &NSColor::labelColor());
         title.setFrame(NSRect::new(
@@ -460,12 +473,12 @@ fn paint_selection() {
         let rows = list.subviews();
         for (index, row) in rows.iter().enumerate() {
             let on = !VISIBLE_ROWS.with(|cmds| cmds.borrow().is_empty()) && index == selected;
-            if on {
-                let color = NSColor::selectedContentBackgroundColor().colorWithAlphaComponent(0.92);
-                set_background(&row, &color);
+            let color = if on {
+                NSColor::selectedContentBackgroundColor()
             } else {
-                set_background(&row, &NSColor::clearColor());
-            }
+                NSColor::clearColor()
+            };
+            set_row_fill(&row, &color);
             paint_row_text(&row, on);
         }
     });
@@ -575,14 +588,12 @@ fn round_view(view: &NSView, radius: f64) {
     }
 }
 
-fn set_background(view: &NSView, color: &NSColor) {
-    view.setWantsLayer(true);
-    unsafe {
-        let layer: *mut objc2::runtime::AnyObject = msg_send![view, layer];
-        if layer.is_null() {
+fn set_row_fill(row: &NSView, color: &NSColor) {
+    let subs = row.subviews();
+    for view in subs.iter() {
+        if let Some(fill) = view.downcast_ref::<NSBox>() {
+            fill.setFillColor(color);
             return;
         }
-        let cg: *mut objc2::runtime::AnyObject = msg_send![color, CGColor];
-        let _: () = msg_send![layer, setBackgroundColor: cg];
     }
 }
