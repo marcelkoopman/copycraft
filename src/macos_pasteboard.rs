@@ -114,10 +114,13 @@ pub(crate) fn decode_preview() -> Option<DecodedPreview> {
 }
 
 fn read_image_file(path: &std::path::Path) -> Option<DecodedPreview> {
-    let is_png = path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("png"));
+    let is_png = match infer::get_from_path(path) {
+        Ok(Some(kind)) => kind.extension() == "png",
+        Ok(None) | Err(_) => path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("png")),
+    };
     if is_png {
         let bytes = std::fs::read(path).ok()?;
         return decode_bytes(bytes, true);
@@ -134,18 +137,17 @@ fn read_image_file(path: &std::path::Path) -> Option<DecodedPreview> {
 }
 
 pub(crate) fn write_history_image(bytes: &[u8]) -> Result<(), String> {
-    if bytes.starts_with(b"\x89PNG") {
+    if infer::image::is_png(bytes) {
         return write_png(bytes);
     }
-    let (label, _) = sniff_image(bytes, false);
+    let extension = detect_bytes(bytes)
+        .map(|kind| kind.extension)
+        .unwrap_or("tiff");
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| elapsed.as_nanos())
         .unwrap_or(0);
-    let path = std::env::temp_dir().join(format!(
-        "copycraft-history-{nanos}.{}",
-        extension_for(label)
-    ));
+    let path = std::env::temp_dir().join(format!("copycraft-history-{nanos}.{extension}"));
     std::fs::write(&path, bytes).map_err(|err| err.to_string())?;
     set_file_url(&path)
 }
@@ -220,7 +222,7 @@ fn build_card(change_count: isize) -> Option<CardSnap> {
     let (byte_len, label_hint, thumbnail) = match source {
         ImageSource::Bytes { bytes, is_png } => {
             let len = bytes.len();
-            let label = sniff_image(&bytes, is_png).0;
+            let label = detect_image_bytes(&bytes, is_png).label;
             let thumbnail = crate::macos_image_io::preview_from_bytes(&bytes)
                 .or_else(|| image_ops::preview_from_encoded(&bytes))?;
             (len, label, thumbnail)
@@ -230,7 +232,7 @@ fn build_card(change_count: isize) -> Option<CardSnap> {
                 .ok()
                 .and_then(|meta| usize::try_from(meta.len()).ok())
                 .unwrap_or(0);
-            let label = extension_label(&path);
+            let label = detect_path(&path).label;
             let thumbnail = crate::macos_image_io::preview_from_path(&path).or_else(|| {
                 let bytes = std::fs::read(&path).ok()?;
                 image_ops::preview_from_encoded(&bytes)
@@ -264,29 +266,21 @@ fn export_image() -> Option<ImageExport> {
     let source = autoreleasepool(|_| image_source(&pasteboard, cached_path.as_deref()))?;
     match source {
         ImageSource::Bytes { bytes, is_png } => {
-            let (label, mime) = sniff_image(&bytes, is_png);
+            let detected = detect_image_bytes(&bytes, is_png);
             Some(ImageExport {
                 bytes,
-                mime,
-                extension: extension_for(label),
+                mime: detected.mime,
+                extension: detected.extension,
                 path: None,
             })
         }
         ImageSource::File(path) => {
             let bytes = std::fs::read(&path).ok()?;
-            let from_ext = extension_label(&path);
-            let (sniffed, _) = sniff_image(&bytes, from_ext == "PNG");
-            let label = if sniffed != "TIFF" {
-                sniffed
-            } else if from_ext != "Image" {
-                from_ext
-            } else {
-                sniffed
-            };
+            let detected = detect_bytes(&bytes).unwrap_or_else(|| extension_kind(&path));
             Some(ImageExport {
                 bytes,
-                mime: mime_for(label),
-                extension: extension_for(label),
+                mime: detected.mime,
+                extension: detected.extension,
                 path: Some(path),
             })
         }
@@ -322,62 +316,120 @@ fn invalidate_caches() {
     }
 }
 
-fn sniff_image(bytes: &[u8], hint_png: bool) -> (&'static str, &'static str) {
-    if hint_png || bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
-        return ("PNG", "image/png");
-    }
-    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
-        return ("JPEG", "image/jpeg");
-    }
-    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
-        return ("GIF", "image/gif");
-    }
-    if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
-        return ("WEBP", "image/webp");
-    }
-    ("TIFF", "image/tiff")
+struct ContentKind {
+    label: &'static str,
+    mime: &'static str,
+    extension: &'static str,
 }
 
-fn extension_label(path: &std::path::Path) -> &'static str {
-    match path
+fn detect_bytes(bytes: &[u8]) -> Option<ContentKind> {
+    infer::get(bytes)
+        .filter(|kind| kind.matcher_type() == infer::MatcherType::Image)
+        .map(content_kind)
+}
+
+fn detect_image_bytes(bytes: &[u8], hint_png: bool) -> ContentKind {
+    if let Some(kind) = detect_bytes(bytes) {
+        return kind;
+    }
+    if hint_png {
+        ContentKind {
+            label: "PNG",
+            mime: "image/png",
+            extension: "png",
+        }
+    } else {
+        ContentKind {
+            label: "TIFF",
+            mime: "image/tiff",
+            extension: "tiff",
+        }
+    }
+}
+
+fn detect_path(path: &std::path::Path) -> ContentKind {
+    infer::get_from_path(path)
+        .ok()
+        .flatten()
+        .filter(|kind| kind.matcher_type() == infer::MatcherType::Image)
+        .map(content_kind)
+        .unwrap_or_else(|| extension_kind(path))
+}
+
+fn content_kind(kind: infer::Type) -> ContentKind {
+    let ext = kind.extension();
+    let mime = kind.mime_type();
+    let (label, mime, extension) = match ext {
+        "jpg" => ("JPEG", mime, "jpg"),
+        "tif" => ("TIFF", mime, "tiff"),
+        // infer reports HEIC photos as image/heif. The pasteboard type is HEIC.
+        "heif" => ("HEIC", "image/heic", "heic"),
+        "jp2" => ("JPEG 2000", mime, "jp2"),
+        "png" => ("PNG", mime, "png"),
+        "gif" => ("GIF", mime, "gif"),
+        "webp" => ("WEBP", mime, "webp"),
+        "bmp" => ("BMP", mime, "bmp"),
+        "avif" => ("AVIF", mime, "avif"),
+        "ico" => ("ICO", mime, "ico"),
+        "psd" => ("PSD", mime, "psd"),
+        "jxl" => ("JXL", mime, "jxl"),
+        "cr2" => ("CR2", mime, "cr2"),
+        _ => ("Image", mime, ext),
+    };
+    ContentKind {
+        label,
+        mime,
+        extension,
+    }
+}
+
+fn extension_kind(path: &std::path::Path) -> ContentKind {
+    let ext = path
         .extension()
         .and_then(|ext| ext.to_str())
         .unwrap_or("")
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "png" => "PNG",
-        "jpg" | "jpeg" => "JPEG",
-        "gif" => "GIF",
-        "webp" => "WEBP",
-        "heic" => "HEIC",
-        "bmp" => "BMP",
-        "tif" | "tiff" => "TIFF",
-        _ => "Image",
-    }
-}
-
-fn extension_for(label: &str) -> &'static str {
-    match label {
-        "JPEG" => "jpg",
-        "GIF" => "gif",
-        "WEBP" => "webp",
-        "HEIC" => "heic",
-        "BMP" => "bmp",
-        "TIFF" => "tiff",
-        _ => "png",
-    }
-}
-
-fn mime_for(label: &str) -> &'static str {
-    match label {
-        "JPEG" => "image/jpeg",
-        "GIF" => "image/gif",
-        "WEBP" => "image/webp",
-        "HEIC" => "image/heic",
-        "BMP" => "image/bmp",
-        "TIFF" => "image/tiff",
-        _ => "image/png",
+        .to_ascii_lowercase();
+    match ext.as_str() {
+        "png" => ContentKind {
+            label: "PNG",
+            mime: "image/png",
+            extension: "png",
+        },
+        "jpg" | "jpeg" => ContentKind {
+            label: "JPEG",
+            mime: "image/jpeg",
+            extension: "jpg",
+        },
+        "gif" => ContentKind {
+            label: "GIF",
+            mime: "image/gif",
+            extension: "gif",
+        },
+        "webp" => ContentKind {
+            label: "WEBP",
+            mime: "image/webp",
+            extension: "webp",
+        },
+        "heic" | "heif" => ContentKind {
+            label: "HEIC",
+            mime: "image/heic",
+            extension: "heic",
+        },
+        "bmp" => ContentKind {
+            label: "BMP",
+            mime: "image/bmp",
+            extension: "bmp",
+        },
+        "tif" | "tiff" => ContentKind {
+            label: "TIFF",
+            mime: "image/tiff",
+            extension: "tiff",
+        },
+        _ => ContentKind {
+            label: "Image",
+            mime: "image/png",
+            extension: "png",
+        },
     }
 }
 
@@ -546,6 +598,16 @@ fn filenames_image(pasteboard: &NSPasteboard) -> Option<PathBuf> {
 }
 
 fn is_image_file(path: &std::path::Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    match infer::get_from_path(path) {
+        Ok(Some(kind)) => kind.matcher_type() == infer::MatcherType::Image,
+        Ok(None) | Err(_) => has_image_extension(path),
+    }
+}
+
+fn has_image_extension(path: &std::path::Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
         .is_some_and(|ext| {
@@ -553,14 +615,27 @@ fn is_image_file(path: &std::path::Path) -> bool {
                 .iter()
                 .any(|candidate| ext.eq_ignore_ascii_case(candidate))
         })
-        && path.is_file()
 }
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
-    use super::{extension_label, names_copied_image, sniff_image};
+    use super::{detect_image_bytes, extension_kind, is_image_file, names_copied_image};
+
+    struct RemoveOnDrop(PathBuf);
+
+    impl Drop for RemoveOnDrop {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+
+    fn write_temp(name: &str, bytes: &[u8]) -> RemoveOnDrop {
+        let path = std::env::temp_dir().join(name);
+        std::fs::write(&path, bytes).unwrap();
+        RemoveOnDrop(path)
+    }
 
     #[test]
     fn copied_png_filename_is_the_image() {
@@ -580,10 +655,32 @@ mod tests {
     }
 
     #[test]
-    fn sniff_names_png_jpeg_and_a_heic_file() {
-        assert_eq!(sniff_image(b"\x89PNG\r\n", true).0, "PNG");
-        assert_eq!(sniff_image(&[0xFF, 0xD8, 0xFF, 0], false).0, "JPEG");
-        assert_eq!(extension_label(Path::new("/tmp/shot.heic")), "HEIC");
+    fn infer_names_png_jpeg_webp_and_heic() {
+        let png = detect_image_bytes(b"\x89PNG\r\n", false);
+        assert_eq!(png.label, "PNG");
+        assert_eq!(png.mime, "image/png");
+        let jpeg = detect_image_bytes(&[0xFF, 0xD8, 0xFF, 0], false);
+        assert_eq!(jpeg.label, "JPEG");
+        assert_eq!(jpeg.mime, "image/jpeg");
+        assert_eq!(jpeg.extension, "jpg");
+        let mut webp = [0_u8; 12];
+        webp[8..12].copy_from_slice(b"WEBP");
+        assert_eq!(detect_image_bytes(&webp, false).label, "WEBP");
+        let heic = b"\x00\x00\x00\x10ftypheic\x00\x00\x00\x00";
+        let heic = detect_image_bytes(heic, false);
+        assert_eq!(heic.label, "HEIC");
+        assert_eq!(heic.mime, "image/heic");
+        assert_eq!(heic.extension, "heic");
+        assert_eq!(extension_kind(Path::new("/tmp/shot.heic")).label, "HEIC");
+        assert_eq!(detect_image_bytes(b"not-an-image", true).label, "PNG");
+    }
+
+    #[test]
+    fn infer_reads_the_file_not_only_its_name() {
+        let png = write_temp("copycraft-infer-png.bin", b"\x89PNG\r\n\x1a\n");
+        assert!(is_image_file(&png.0));
+        let pdf = write_temp("copycraft-infer-pdf.png", b"%PDF-1.4\n");
+        assert!(!is_image_file(&pdf.0));
     }
 
     #[test]

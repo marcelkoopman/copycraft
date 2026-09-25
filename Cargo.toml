@@ -3,6 +3,24 @@ name = "copycraft"
 version = "0.1.28"
 edition = "2024"
 
+[profile.dev]
+debug = "line-tables-only"
+incremental = true
+
+[profile.dev.package."*"]
+opt-level = 1
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
+
+[profile.dist]
+inherits = "release"
+strip = "symbols"
+panic = "abort"
+
 [package.metadata.bundle]
 name = "Copycraft"
 identifier = "com.github.marcelkoopman.copycraft"
@@ -23,6 +41,7 @@ base64 = "0.23"
 compression-prompt = "0.1.2"
 global-hotkey = "0.8"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "tiff"] }
+infer = "0.22"
 polars = { version = "0.55.2", default-features = false, features = ["csv", "json", "fmt", "dtype-slim", "parquet"] }
 redact-core = "0.12"
 serde_json = "1"
