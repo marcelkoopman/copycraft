@@ -5,7 +5,9 @@ use std::time::{Duration, Instant};
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use tray_icon::{
     MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent,
-    menu::{IconMenuItem, Menu, MenuEvent, MenuItem, NativeIcon, TextStyle},
+    menu::{
+        IconMenuItem, Menu, MenuEvent, MenuItem, NativeIcon, PredefinedMenuItem, Submenu, TextStyle,
+    },
 };
 use winit::{
     application::ApplicationHandler,
@@ -69,9 +71,19 @@ impl ApplicationHandler<UserEvent> for App {
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         while let Ok(event) = MenuEvent::receiver().try_recv() {
-            if event.id.0.as_str() == "quit" {
-                event_loop.exit();
-                return;
+            match event.id.0.as_str() {
+                "quit" => {
+                    event_loop.exit();
+                    return;
+                }
+                id => {
+                    if let Some(index) = id
+                        .strip_prefix("hist-")
+                        .and_then(|value| value.parse::<usize>().ok())
+                    {
+                        self.restore_history(index);
+                    }
+                }
             }
         }
 
@@ -116,7 +128,7 @@ impl App {
             CommandId::Compress => self.show_current(PreviewAction::Compress),
             CommandId::Redact => self.show_current(PreviewAction::Redact),
             CommandId::Dataframe => self.show_current(PreviewAction::Dataframe),
-            CommandId::History(index) => self.show_history(index),
+            CommandId::History(index) => self.restore_history(index),
             CommandId::ImageBase64 => self.copy_image_text(false),
             CommandId::ImageDataUrl => self.copy_image_text(true),
             CommandId::ImageFile => self.copy_image_file(),
@@ -158,15 +170,10 @@ impl App {
             ClipboardView::Image => (SubjectKind::Image, None),
             ClipboardView::Text(text) => (SubjectKind::Text, Some(text.clone())),
         };
-        let current_text = view.text();
         let history = self
             .history
             .labels()
             .into_iter()
-            .filter(|(index, _)| {
-                self.history
-                    .shows_in_history(*index, current_text, self.current_image.as_ref())
-            })
             .map(|(index, _)| Hist {
                 index,
                 title: history_title(&self.history, index),
@@ -289,13 +296,29 @@ impl App {
         }
     }
 
-    fn show_history(&mut self, index: usize) {
+    fn restore_history(&mut self, index: usize) {
         if let Some(bytes) = self.history.image(index) {
+            #[cfg(target_os = "macos")]
+            if bytes.starts_with(b"\x89PNG") {
+                if let Err(e) = crate::macos_pasteboard::write_png(&bytes) {
+                    eprintln!("restore image failed: {e}");
+                }
+            } else {
+                self.open_stored_image(bytes);
+            }
+            #[cfg(not(target_os = "macos"))]
             self.open_stored_image(bytes);
             return;
         }
-        if let Some(text) = self.history.get(index).map(str::to_string) {
-            self.open_preview(&text, PreviewAction::Original);
+        let Some(text) = self.history.get(index).map(str::to_string) else {
+            return;
+        };
+        if let Err(e) = clipboard::write_clipboard(&text) {
+            eprintln!("restore history failed: {e}");
+            return;
+        }
+        if launcher::is_open() {
+            self.refresh_popup();
         }
     }
 
@@ -360,7 +383,18 @@ impl App {
         self.signature = signature;
         self.sync_icon(icon::accent_for_kind(detected_kind(&view)));
         self.sync_tooltip(&view);
+        self.refresh_status_menu();
         true
+    }
+
+    fn refresh_status_menu(&self) {
+        let entries: Vec<(usize, String)> = self
+            .history
+            .labels()
+            .into_iter()
+            .map(|(index, _)| (index, history_title(&self.history, index)))
+            .collect();
+        self.tray.set_menu(Some(Box::new(status_menu(&entries))));
     }
 
     fn sync_icon(&mut self, accent: Option<[u8; 4]>) {
@@ -456,16 +490,41 @@ fn status_labels() -> [String; 3] {
     ]
 }
 
+#[cfg(test)]
+fn status_rows(entries: &[(usize, String)]) -> Vec<String> {
+    let [hotkey, version, quit] = status_labels();
+    let mut rows = vec![hotkey];
+    if !entries.is_empty() {
+        rows.push("History".to_string());
+    }
+    rows.push(version);
+    rows.push(quit);
+    rows
+}
+
 fn info_item(label: &str) -> MenuItem {
     let item = MenuItem::new(label, false, None);
     item.set_styled_text(vec![(label.to_string(), TextStyle::Secondary)]);
     item
 }
 
-fn status_menu() -> Menu {
+fn status_menu(entries: &[(usize, String)]) -> Menu {
     let [hotkey, version, quit] = status_labels();
     let menu = Menu::new();
     let _ = menu.append(&info_item(&hotkey));
+    if !entries.is_empty() {
+        let history = Submenu::new("History", true);
+        for (index, title) in entries {
+            let _ = history.append(&MenuItem::with_id(
+                format!("hist-{index}"),
+                title,
+                true,
+                None,
+            ));
+        }
+        let _ = menu.append(&history);
+    }
+    let _ = menu.append(&PredefinedMenuItem::separator());
     let _ = menu.append(&info_item(&version));
     let _ = menu.append(&IconMenuItem::with_id_and_native_icon(
         "quit",
@@ -492,7 +551,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let tray = TrayIconBuilder::new()
         .with_icon(icon)
         .with_icon_as_template(false)
-        .with_menu(Box::new(status_menu()))
+        .with_menu(Box::new(status_menu(&[])))
         .with_menu_on_left_click(false)
         .with_tooltip("Copycraft")
         .build()?;
@@ -518,7 +577,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{detected_kind, status_labels, version_label};
+    use super::{detected_kind, status_labels, status_rows, version_label};
     use crate::clipboard::ClipboardView;
     use crate::format::FormatKind;
     use crate::hotkey;
@@ -562,6 +621,23 @@ mod tests {
             status_labels(),
             [
                 hotkey::LABEL.to_string(),
+                version_label(),
+                "Quit".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn status_menu_lists_history_between_the_hotkey_and_version() {
+        let entries = vec![
+            (1, "older note".to_string()),
+            (0, "just copied".to_string()),
+        ];
+        assert_eq!(
+            status_rows(&entries),
+            vec![
+                hotkey::LABEL.to_string(),
+                "History".to_string(),
                 version_label(),
                 "Quit".to_string(),
             ]

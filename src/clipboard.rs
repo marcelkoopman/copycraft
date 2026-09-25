@@ -172,6 +172,7 @@ impl ClipboardHistory {
     }
 
     /// The current clipboard item stays on the Current row. Older images stay listed.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn shows_in_history(
         &self,
         index: usize,

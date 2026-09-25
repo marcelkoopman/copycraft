@@ -293,7 +293,7 @@ pub fn matching(commands: &[Command], query: &str) -> Vec<Command> {
         .collect()
 }
 
-/// Quit and history. Never mixed into [`chips`].
+/// Quit, earlier copies, and housekeeping. Copies stay out of [`chips`].
 pub fn overflow(data: &LaunchData) -> Vec<Command> {
     let mut commands = vec![command(
         CommandId::ClearClipboard,
@@ -301,6 +301,14 @@ pub fn overflow(data: &LaunchData) -> Vec<Command> {
         "Empty the pasteboard",
         "clear clipboard empty",
     )];
+    for item in &data.history {
+        commands.push(command(
+            CommandId::History(item.index),
+            &item.title,
+            &item.mark,
+            "history",
+        ));
+    }
     if data.can_clear_history {
         commands.push(command(
             CommandId::ClearHistory,
@@ -392,7 +400,8 @@ pub fn step_chip(frames: &[ChipFrame], index: usize, dx: isize, dy: isize) -> us
 pub fn keeps_card_open(id: &CommandId) -> bool {
     matches!(
         id,
-        CommandId::Appearance(_)
+        CommandId::History(_)
+            | CommandId::Appearance(_)
             | CommandId::ClearClipboard
             | CommandId::ClearHistory
             | CommandId::ImageBase64
@@ -791,6 +800,11 @@ mod tests {
             overflow(&input)
                 .iter()
                 .any(|cmd| cmd.id == CommandId::ClearHistory)
+        );
+        assert!(
+            overflow(&input)
+                .iter()
+                .any(|cmd| cmd.id == CommandId::History(9))
         );
     }
 

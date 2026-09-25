@@ -900,6 +900,26 @@ fn activate_selected() {
     run_command(cmd);
 }
 
+fn overflow_item(mtm: MainThreadMarker, title: &str, index: usize) -> Retained<NSMenuItem> {
+    let item = unsafe {
+        NSMenuItem::initWithTitle_action_keyEquivalent(
+            NSMenuItem::alloc(mtm),
+            &NSString::from_str(title),
+            Some(sel!(overflowClicked:)),
+            &NSString::from_str(""),
+        )
+    };
+    item.setTag(index as isize);
+    DELEGATE.with(|slot| {
+        if let Some(delegate) = slot.borrow().as_ref() {
+            unsafe {
+                item.setTarget(Some(delegate));
+            }
+        }
+    });
+    item
+}
+
 fn activate_overflow(index: usize) {
     let cmd = OVERFLOW.with(|slot| slot.borrow().get(index).cloned());
     let Some(cmd) = cmd else {
@@ -927,7 +947,30 @@ fn pop_overflow() {
     menu.setAutoenablesItems(false);
     let mut saw_appearance = false;
     let mut saw_quit = false;
+    let mut history_menu: Option<Retained<NSMenu>> = None;
     for (index, cmd) in items.iter().enumerate() {
+        let in_history = matches!(cmd.id, CommandId::History(_) | CommandId::ClearHistory);
+        if in_history {
+            let submenu = history_menu.get_or_insert_with(|| {
+                let parent = unsafe {
+                    NSMenuItem::initWithTitle_action_keyEquivalent(
+                        NSMenuItem::alloc(mtm),
+                        &NSString::from_str("History"),
+                        None,
+                        &NSString::from_str(""),
+                    )
+                };
+                let submenu =
+                    NSMenu::initWithTitle(NSMenu::alloc(mtm), &NSString::from_str("History"));
+                submenu.setAutoenablesItems(false);
+                parent.setSubmenu(Some(&submenu));
+                menu.addItem(&parent);
+                submenu
+            });
+            let item = overflow_item(mtm, &cmd.title, index);
+            submenu.addItem(&item);
+            continue;
+        }
         if !saw_appearance && matches!(cmd.id, CommandId::Appearance(_)) {
             menu.addItem(&NSMenuItem::separatorItem(mtm));
             saw_appearance = true;
@@ -936,15 +979,7 @@ fn pop_overflow() {
             menu.addItem(&NSMenuItem::separatorItem(mtm));
             saw_quit = true;
         }
-        let item = unsafe {
-            NSMenuItem::initWithTitle_action_keyEquivalent(
-                NSMenuItem::alloc(mtm),
-                &NSString::from_str(&cmd.title),
-                Some(sel!(overflowClicked:)),
-                &NSString::from_str(""),
-            )
-        };
-        item.setTag(index as isize);
+        let item = overflow_item(mtm, &cmd.title, index);
         if let CommandId::Appearance(item_theme) = cmd.id {
             let state = if item_theme == theme {
                 NSControlStateValueOn
