@@ -86,7 +86,6 @@ impl FormatKind {
         format!("clipboard.{}", self.suggested_extension())
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn accent_rgba(self) -> Option<[u8; 4]> {
         match self {
             Self::Json => Some([245, 197, 66, 255]),
@@ -123,8 +122,7 @@ pub fn detect(text: &str) -> FormatKind {
     if crate::transform::looks_like_yaml(text) {
         return FormatKind::Yaml;
     }
-    let trimmed = text.trim_start();
-    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+    if looks_like_url(text) {
         return FormatKind::Url;
     }
     if looks_like_xml(text) {
@@ -148,14 +146,221 @@ pub fn format_text(text: &str) -> String {
         FormatKind::Rust => format_rust(text),
         FormatKind::Java => indent_braces(text),
         FormatKind::Xml => pretty_xml(text),
-        FormatKind::Url
-        | FormatKind::Csv
+        FormatKind::Url => format_url(text),
+        FormatKind::Csv
         | FormatKind::Tsv
         | FormatKind::Dataframe
         | FormatKind::Image
         | FormatKind::Text
         | FormatKind::Plain => text.to_string(),
     }
+}
+
+pub(crate) fn looks_like_url(text: &str) -> bool {
+    let text = text.trim();
+    if text.is_empty() || text.contains(['\n', '\t']) {
+        return false;
+    }
+    let rest = strip_http_scheme(text).unwrap_or(text);
+    if rest.is_empty() || rest.starts_with('/') {
+        return false;
+    }
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+    if authority_host(authority).is_none() {
+        return false;
+    }
+    let bare = strip_http_scheme(text).is_none() && !rest.contains('/') && !rest.contains('?');
+    if bare && is_filename(authority) {
+        return false;
+    }
+    true
+}
+
+fn strip_http_scheme(text: &str) -> Option<&str> {
+    let (scheme, rest) = text.split_once("://")?;
+    if scheme.eq_ignore_ascii_case("https") || scheme.eq_ignore_ascii_case("http") {
+        Some(rest)
+    } else {
+        None
+    }
+}
+
+fn authority_host(authority: &str) -> Option<&str> {
+    if authority.is_empty() || authority.contains(' ') {
+        return None;
+    }
+    let hostport = authority.rsplit('@').next().unwrap_or(authority);
+    let host = match hostport.rsplit_once(':') {
+        Some((host, port))
+            if !host.is_empty()
+                && !port.is_empty()
+                && port.chars().all(|ch| ch.is_ascii_digit()) =>
+        {
+            host
+        }
+        Some(_) => return None,
+        None => hostport,
+    };
+    is_url_host(host).then_some(host)
+}
+
+fn is_url_host(host: &str) -> bool {
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    let labels: Vec<&str> = host.split('.').collect();
+    if labels.len() < 2 {
+        return false;
+    }
+    let tld = labels[labels.len() - 1];
+    labels.iter().all(|label| {
+        !label.is_empty()
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+            && label
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
+    }) && tld.len() >= 2
+        && tld.chars().all(|ch| ch.is_ascii_alphabetic())
+}
+
+fn is_filename(name: &str) -> bool {
+    let Some((_, ext)) = name.rsplit_once('.') else {
+        return false;
+    };
+    matches!(
+        ext.to_ascii_lowercase().as_str(),
+        "png"
+            | "jpg"
+            | "jpeg"
+            | "gif"
+            | "webp"
+            | "pdf"
+            | "zip"
+            | "txt"
+            | "json"
+            | "xml"
+            | "csv"
+            | "mp4"
+            | "mp3"
+    )
+}
+
+/// Adds `https://` when the scheme is missing and percent-encodes characters
+/// that are not allowed in a URI path or query parameter.
+fn format_url(text: &str) -> String {
+    let text = text.trim();
+    let (scheme, rest) = match strip_http_scheme(text) {
+        Some(rest) => {
+            let scheme = if text.to_ascii_lowercase().starts_with("http://") {
+                "http"
+            } else {
+                "https"
+            };
+            (scheme, rest)
+        }
+        None => ("https", text),
+    };
+    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..authority_end];
+    let after = &rest[authority_end..];
+    let (before_fragment, fragment) = split_marker(after, '#');
+    let (path, query) = split_marker(before_fragment, '?');
+    let mut out = String::new();
+    out.push_str(scheme);
+    out.push_str("://");
+    out.push_str(authority);
+    out.push_str(&encode_path(path));
+    if let Some(query) = query {
+        out.push('?');
+        out.push_str(&encode_query(query));
+    }
+    if let Some(fragment) = fragment {
+        out.push('#');
+        out.push_str(&encode_component(fragment, fragment_byte));
+    }
+    out
+}
+
+fn split_marker(text: &str, marker: char) -> (&str, Option<&str>) {
+    match text.split_once(marker) {
+        Some((head, tail)) => (head, Some(tail)),
+        None => (text, None),
+    }
+}
+
+fn encode_path(path: &str) -> String {
+    path.split('/')
+        .map(|segment| encode_component(segment, query_byte))
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn encode_query(query: &str) -> String {
+    query
+        .split('&')
+        .map(|part| match part.split_once('=') {
+            Some((key, value)) => format!(
+                "{}={}",
+                encode_component(key, query_byte),
+                encode_component(value, query_byte)
+            ),
+            None => encode_component(part, query_byte),
+        })
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
+fn encode_component(text: &str, allow: fn(u8) -> bool) -> String {
+    let bytes = text.as_bytes();
+    let mut out = String::new();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%'
+            && index + 2 < bytes.len()
+            && bytes[index + 1].is_ascii_hexdigit()
+            && bytes[index + 2].is_ascii_hexdigit()
+        {
+            out.push('%');
+            out.push(bytes[index + 1] as char);
+            out.push(bytes[index + 2] as char);
+            index += 3;
+            continue;
+        }
+        let byte = bytes[index];
+        if allow(byte) {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+        index += 1;
+    }
+    out
+}
+
+fn query_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric()
+        || matches!(
+            byte,
+            b'-' | b'.'
+                | b'_'
+                | b'~'
+                | b'!'
+                | b'$'
+                | b'\''
+                | b'('
+                | b')'
+                | b'*'
+                | b'+'
+                | b','
+                | b';'
+                | b':'
+                | b'@'
+        )
+}
+
+fn fragment_byte(byte: u8) -> bool {
+    query_byte(byte) || byte == b'/' || byte == b'?'
 }
 
 pub fn looks_like_xml(text: &str) -> bool {
@@ -520,6 +725,29 @@ mod tests {
         assert_eq!(FormatKind::Rust.accent_rgba(), Some([222, 165, 132, 255]));
         assert_eq!(FormatKind::Image.accent_rgba(), Some([255, 126, 182, 255]));
         assert_eq!(FormatKind::Plain.accent_rgba(), None);
+    }
+
+    #[test]
+    fn formats_a_url_with_a_scheme_and_encoded_parameters() {
+        assert_eq!(
+            super::format_text("example.com/search?q=hello world&city=New York"),
+            "https://example.com/search?q=hello%20world&city=New%20York"
+        );
+        assert_eq!(
+            super::format_text("http://example.com/my file?x=a/b"),
+            "http://example.com/my%20file?x=a%2Fb"
+        );
+        assert_eq!(
+            super::format_text("https://example.com/search?q=hello%20world"),
+            "https://example.com/search?q=hello%20world"
+        );
+        assert_eq!(
+            super::format_text("HTTPS://example.com/path"),
+            "https://example.com/path"
+        );
+        assert_eq!(detect("www.example.com/a"), FormatKind::Url);
+        assert_eq!(detect("notes.txt"), FormatKind::Plain);
+        assert_eq!(detect("https://example.com/path"), FormatKind::Url);
     }
 
     #[test]
