@@ -7,6 +7,7 @@ use crate::toolbar_visibility;
 pub const MAX_VISIBLE: usize = 8;
 pub const CHIP_PITCH: f64 = 34.0;
 pub const CHIP_PILL_H: f64 = 28.0;
+pub const COPIED_LABEL: &str = "Copied!";
 
 const CHIP_GAP: f64 = 6.0;
 const EXCERPT_LINES: usize = 6;
@@ -42,13 +43,14 @@ pub struct LaunchData {
     pub image: Option<ImageFacts>,
     pub history: Vec<Hist>,
     pub can_clear_history: bool,
-    pub menu_bar_shown: bool,
     pub theme: Theme,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommandId {
     Preview,
+    Copy,
+    Visit,
     Format,
     Convert,
     Decode,
@@ -61,7 +63,6 @@ pub enum CommandId {
     History(usize),
     ClearClipboard,
     ClearHistory,
-    ToggleMenuBar,
     Appearance(Theme),
     Quit,
 }
@@ -89,6 +90,9 @@ pub struct WorkCard {
     pub excerpt: String,
     pub placeholder: String,
     pub shows_image: bool,
+    /// YouTube page, when the card should load a video thumbnail.
+    pub link_page: Option<String>,
+    pub link_thumb: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -138,15 +142,25 @@ pub fn work_card(data: &LaunchData) -> WorkCard {
             excerpt: String::new(),
             placeholder: String::new(),
             shows_image: true,
+            link_page: None,
+            link_thumb: None,
         },
         SubjectKind::Text => {
             let text = data.subject_text.as_deref().unwrap_or("");
+            if let Some(card) = youtube_card(text) {
+                return card;
+            }
+            if let Some(card) = page_card(text) {
+                return card;
+            }
             WorkCard {
                 title: format::detect(text).source_heading().to_string(),
                 meta: text_meta(text),
                 excerpt: payload_excerpt(text),
                 placeholder: String::new(),
                 shows_image: false,
+                link_page: None,
+                link_thumb: None,
             }
         }
         SubjectKind::Empty => WorkCard {
@@ -155,6 +169,8 @@ pub fn work_card(data: &LaunchData) -> WorkCard {
             excerpt: String::new(),
             placeholder: "Nothing copied".to_string(),
             shows_image: false,
+            link_page: None,
+            link_thumb: None,
         },
         SubjectKind::NoText => WorkCard {
             title: "Clipboard".to_string(),
@@ -162,8 +178,37 @@ pub fn work_card(data: &LaunchData) -> WorkCard {
             excerpt: String::new(),
             placeholder: "No text on the clipboard".to_string(),
             shows_image: false,
+            link_page: None,
+            link_thumb: None,
         },
     }
+}
+
+fn page_card(text: &str) -> Option<WorkCard> {
+    let page = crate::page_preview::page_url(text)?;
+    let host = crate::page_preview::host(page).unwrap_or("Page");
+    Some(WorkCard {
+        title: host.to_string(),
+        meta: text_meta(text),
+        excerpt: payload_excerpt(text),
+        placeholder: String::new(),
+        shows_image: false,
+        link_page: Some(page.to_string()),
+        link_thumb: None,
+    })
+}
+
+fn youtube_card(text: &str) -> Option<WorkCard> {
+    let id = crate::youtube::video_id(text)?;
+    Some(WorkCard {
+        title: "YouTube".to_string(),
+        meta: text_meta(text),
+        excerpt: payload_excerpt(text),
+        placeholder: String::new(),
+        shows_image: false,
+        link_page: Some(text.trim().to_string()),
+        link_thumb: Some(crate::youtube::thumbnail_url(id)),
+    })
 }
 
 /// Actions for the thing on the clipboard. Housekeeping stays in [`overflow`].
@@ -190,12 +235,21 @@ pub fn chips(data: &LaunchData) -> Vec<Command> {
                 "file save path",
             ),
         ],
-        SubjectKind::Text => text_chips(data.subject_text.as_deref().unwrap_or("")),
+        SubjectKind::Text => {
+            let text = data.subject_text.as_deref().unwrap_or("");
+            if crate::youtube::video_id(text).is_some()
+                || crate::page_preview::page_url(text).is_some()
+            {
+                link_chips(text)
+            } else {
+                text_chips(text)
+            }
+        }
         SubjectKind::Empty | SubjectKind::NoText => Vec::new(),
     }
 }
 
-/// Chips, earlier copies, and appearance. Quit and the menu bar stay out.
+/// Chips, earlier copies, and appearance. Quit stays out.
 pub fn search_pool(data: &LaunchData) -> Vec<Command> {
     let mut commands = chips(data);
     for item in &data.history {
@@ -241,7 +295,7 @@ pub fn matching(commands: &[Command], query: &str) -> Vec<Command> {
         .collect()
 }
 
-/// Quit, history, and the menu bar icon. Never mixed into [`chips`].
+/// Quit and history. Never mixed into [`chips`].
 pub fn overflow(data: &LaunchData) -> Vec<Command> {
     let mut commands = vec![command(
         CommandId::ClearClipboard,
@@ -255,21 +309,6 @@ pub fn overflow(data: &LaunchData) -> Vec<Command> {
             "Clear history",
             "Forget copies",
             "clear history forget",
-        ));
-    }
-    if data.menu_bar_shown {
-        commands.push(command(
-            CommandId::ToggleMenuBar,
-            "Hide menu bar icon",
-            "Free the menu bar",
-            "menu bar badge icon hide",
-        ));
-    } else {
-        commands.push(command(
-            CommandId::ToggleMenuBar,
-            "Show menu bar icon",
-            "Optional badge",
-            "menu bar badge icon show",
         ));
     }
     for theme in [Theme::System, Theme::Light, Theme::Dark] {
@@ -289,9 +328,12 @@ pub fn overflow(data: &LaunchData) -> Vec<Command> {
     commands
 }
 
+/// Width of a chip. The label is inset 8pt on each side, and the text field
+/// adds its own padding around the 13pt system font. A field that is even
+/// slightly short replaces the tail with an ellipsis, so "Copy" draws as "Co…".
 pub fn chip_width(title: &str) -> f64 {
     let chars = title.chars().count() as f64;
-    (22.0 + chars * 7.4).clamp(52.0, 196.0)
+    (32.0 + chars * 8.0).clamp(64.0, 220.0)
 }
 
 pub fn layout_chips(titles: &[&str], width: f64) -> Vec<ChipFrame> {
@@ -352,7 +394,7 @@ pub fn step_chip(frames: &[ChipFrame], index: usize, dx: isize, dy: isize) -> us
 pub fn keeps_card_open(id: &CommandId) -> bool {
     matches!(
         id,
-        CommandId::ToggleMenuBar
+        CommandId::Copy
             | CommandId::Appearance(_)
             | CommandId::ClearClipboard
             | CommandId::ClearHistory
@@ -360,6 +402,24 @@ pub fn keeps_card_open(id: &CommandId) -> bool {
             | CommandId::ImageDataUrl
             | CommandId::ImageFile
     )
+}
+
+fn link_chips(text: &str) -> Vec<Command> {
+    let mut commands = vec![command(
+        CommandId::Visit,
+        "Visit",
+        "Open in browser",
+        "visit open browser",
+    )];
+    if toolbar_visibility::shows_format(text) {
+        commands.push(command(
+            CommandId::Format,
+            "Format",
+            "URI",
+            "format url uri",
+        ));
+    }
+    commands
 }
 
 fn text_chips(text: &str) -> Vec<Command> {
@@ -494,8 +554,8 @@ fn command(id: CommandId, title: &str, detail: &str, keywords: &str) -> Command 
 #[cfg(test)]
 mod tests {
     use super::{
-        CommandId, Hist, ImageFacts, LaunchData, SubjectKind, chips, layout_chips, matching,
-        overflow, payload_excerpt, search_pool, snippet, step_chip, work_card,
+        CommandId, Hist, ImageFacts, LaunchData, SubjectKind, chip_width, chips, layout_chips,
+        matching, overflow, payload_excerpt, search_pool, snippet, step_chip, work_card,
     };
     use crate::appearance::Theme;
 
@@ -506,7 +566,6 @@ mod tests {
             image: None,
             history: Vec::new(),
             can_clear_history: false,
-            menu_bar_shown: false,
             theme: Theme::System,
         }
     }
@@ -520,10 +579,7 @@ mod tests {
     }
 
     fn housekeeping(id: &CommandId) -> bool {
-        matches!(
-            id,
-            CommandId::Quit | CommandId::ToggleMenuBar | CommandId::ClearHistory
-        )
+        matches!(id, CommandId::Quit | CommandId::ClearHistory)
     }
 
     #[test]
@@ -602,6 +658,62 @@ mod tests {
     }
 
     #[test]
+    fn youtube_url_previews_as_a_thumbnail() {
+        let url = "https://www.youtube.com/watch?v=bEN9Dyg48b0";
+        let card = work_card(&data(SubjectKind::Text, Some(url)));
+        assert_eq!(card.title, "YouTube");
+        assert_eq!(card.link_page.as_deref(), Some(url));
+        assert_eq!(
+            card.link_thumb.as_deref(),
+            Some("https://i.ytimg.com/vi/bEN9Dyg48b0/hqdefault.jpg")
+        );
+        assert_eq!(card.excerpt, url);
+        assert!(!card.shows_image);
+        let input = data(SubjectKind::Text, Some(url));
+        assert_eq!(titles(&chips(&input)), vec!["Visit"]);
+        assert!(chips(&input).iter().all(|cmd| cmd.id != CommandId::Copy));
+    }
+
+    #[test]
+    fn html_url_previews_like_a_page() {
+        let url = "https://www.example.com/news/story";
+        let input = data(SubjectKind::Text, Some(url));
+        let card = work_card(&input);
+        assert_eq!(card.title, "example.com");
+        assert_eq!(card.link_page.as_deref(), Some(url));
+        assert!(card.link_thumb.is_none());
+        assert_eq!(card.excerpt, url);
+        assert_eq!(titles(&chips(&input)), vec!["Visit"]);
+        assert!(chips(&input).iter().all(|cmd| cmd.id != CommandId::Copy));
+    }
+
+    #[test]
+    fn page_card_adds_format_when_the_url_needs_it() {
+        let messy = "https://example.com/search?q=a/b";
+        assert_eq!(
+            titles(&chips(&data(SubjectKind::Text, Some(messy)))),
+            vec!["Visit", "Format"]
+        );
+    }
+
+    #[test]
+    fn file_urls_stay_text() {
+        let card = work_card(&data(
+            SubjectKind::Text,
+            Some("https://example.com/report.pdf"),
+        ));
+        assert_eq!(card.title, "URL");
+        assert!(card.link_page.is_none());
+        assert_eq!(
+            titles(&chips(&data(
+                SubjectKind::Text,
+                Some("https://example.com/report.pdf")
+            ))),
+            vec!["Preview"]
+        );
+    }
+
+    #[test]
     fn text_card_shows_the_payload_not_a_label() {
         let card = work_card(&data(SubjectKind::Text, Some("{\n  \"a\": 1\n}")));
         assert_eq!(card.title, "JSON");
@@ -620,31 +732,8 @@ mod tests {
         assert!(card.excerpt.is_empty());
         let menu = overflow(&input);
         assert_eq!(menu.last().unwrap().id, CommandId::Quit);
-        assert!(menu.iter().any(|cmd| cmd.id == CommandId::ToggleMenuBar));
         assert!(menu.iter().all(|cmd| cmd.id != CommandId::Preview));
         assert!(matching(&search_pool(&input), "quit").is_empty());
-    }
-
-    #[test]
-    fn hidden_badge_is_the_menu_copy() {
-        let mut input = data(SubjectKind::Empty, None);
-        assert_eq!(
-            overflow(&input)
-                .iter()
-                .find(|cmd| cmd.id == CommandId::ToggleMenuBar)
-                .unwrap()
-                .title,
-            "Show menu bar icon"
-        );
-        input.menu_bar_shown = true;
-        assert_eq!(
-            overflow(&input)
-                .iter()
-                .find(|cmd| cmd.id == CommandId::ToggleMenuBar)
-                .unwrap()
-                .title,
-            "Hide menu bar icon"
-        );
     }
 
     #[test]
@@ -724,6 +813,15 @@ mod tests {
         assert_eq!(clipped.lines().count(), 6);
         assert!(clipped.ends_with('…'));
         assert!(cut.chars().count() <= 49);
+    }
+
+    #[test]
+    fn chip_width_leaves_room_for_the_label() {
+        assert!(chip_width("Copy") - 16.0 >= 44.0);
+        assert!(chip_width(super::COPIED_LABEL) >= chip_width("Copy"));
+        assert!(chip_width(super::COPIED_LABEL) - 16.0 >= 60.0);
+        assert!(chip_width("Base64") - 16.0 >= 58.0);
+        assert!(chip_width("Preview") - 16.0 >= 60.0);
     }
 
     #[test]

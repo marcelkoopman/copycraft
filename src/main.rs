@@ -1,5 +1,4 @@
 mod appearance;
-mod badge;
 mod clipboard;
 mod commands;
 mod compress;
@@ -8,16 +7,21 @@ mod dataframe;
 mod decode;
 mod format;
 mod highlight;
+mod hotkey;
 mod icon;
 mod image_ops;
 mod launcher;
 mod menubar;
+mod page_preview;
 mod preview;
 mod redact;
 mod toolbar_visibility;
 mod transform;
 mod validate;
+mod youtube;
 
+#[cfg(target_os = "macos")]
+mod macos_fetch;
 #[cfg(target_os = "macos")]
 mod macos_image_io;
 #[cfg(target_os = "macos")]

@@ -1,5 +1,7 @@
 use tray_icon::Icon;
 
+use crate::format::FormatKind;
+
 const SIZE: u32 = 32;
 const DEFAULT_ACCENT: [u8; 4] = [96, 140, 255, 255];
 const DEFAULT_TEAL: [u8; 4] = [45, 196, 176, 255];
@@ -9,6 +11,14 @@ pub fn menu_icon() -> Result<Icon, Box<dyn std::error::Error>> {
 }
 
 pub fn menu_icon_tinted(accent: Option<[u8; 4]>) -> Result<Icon, Box<dyn std::error::Error>> {
+    Ok(Icon::from_rgba(icon_pixels(accent), SIZE, SIZE)?)
+}
+
+pub fn accent_for_kind(kind: Option<FormatKind>) -> Option<[u8; 4]> {
+    kind.and_then(FormatKind::accent_rgba)
+}
+
+fn icon_pixels(accent: Option<[u8; 4]>) -> Vec<u8> {
     let accent = accent.unwrap_or(DEFAULT_ACCENT);
     let mut rgba = vec![0u8; (SIZE * SIZE * 4) as usize];
     fill_round_rect(&mut rgba, 2, 4, 28, 26, 6, accent);
@@ -17,7 +27,7 @@ pub fn menu_icon_tinted(accent: Option<[u8; 4]>) -> Result<Icon, Box<dyn std::er
     fill_round_rect(&mut rgba, 12, 5, 8, 6, 2, accent);
     draw_brace_left(&mut rgba, companion_accent(accent));
     draw_brace_right(&mut rgba, accent);
-    Ok(Icon::from_rgba(rgba, SIZE, SIZE)?)
+    rgba
 }
 
 fn companion_accent(accent: [u8; 4]) -> [u8; 4] {
@@ -93,7 +103,7 @@ fn draw_brace_right(rgba: &mut [u8], c: [u8; 4]) {
 
 #[cfg(test)]
 mod tests {
-    use super::{menu_icon, menu_icon_tinted};
+    use super::{accent_for_kind, icon_pixels, menu_icon, menu_icon_tinted};
     use crate::format::FormatKind;
 
     #[test]
@@ -105,5 +115,17 @@ mod tests {
     fn builds_tinted_icon_for_rust() {
         let accent = FormatKind::Rust.accent_rgba();
         assert!(menu_icon_tinted(accent).is_ok());
+    }
+
+    #[test]
+    fn pixels_follow_the_detected_accent() {
+        let plain = icon_pixels(accent_for_kind(Some(FormatKind::Plain)));
+        let rust = icon_pixels(accent_for_kind(Some(FormatKind::Rust)));
+        let json = icon_pixels(accent_for_kind(Some(FormatKind::Json)));
+        let image = icon_pixels(accent_for_kind(Some(FormatKind::Image)));
+        assert_eq!(plain, icon_pixels(None));
+        assert_ne!(plain, rust);
+        assert_ne!(rust, json);
+        assert_ne!(json, image);
     }
 }

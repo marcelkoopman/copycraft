@@ -10,7 +10,7 @@ icon = ["assets/icon.icns"]
 version = "0.1.24"
 category = "Utilities"
 short_description = "Clipboard transformer"
-long_description = "A macOS clipboard command. A hotkey opens a card at the cursor for what you copied. The menu bar icon is an optional badge."
+long_description = "A macOS clipboard command. A hotkey opens a card at the cursor for what you copied. The menu bar icon shows that Copycraft is running."
 
 [package.metadata.bundle.macos]
 minimum_system_version = "10.13"
@@ -33,7 +33,7 @@ winit = "0.30"
 [target.'cfg(target_os = "macos")'.dependencies]
 dispatch2 = "0.3"
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSString", "NSAttributedString", "NSArray", "NSURL", "NSUserDefaults", "NSData", "NSDictionary", "NSError"] }
+objc2-foundation = { version = "0.3", features = ["NSString", "NSAttributedString", "NSArray", "NSDate", "NSURL", "NSURLRequest", "NSURLResponse", "NSUserDefaults", "NSData", "NSDictionary", "NSError"] }
 objc2-app-kit = { version = "0.3", features = [
     "NSAnimation",
     "NSAnimationContext",

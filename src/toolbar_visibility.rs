@@ -166,6 +166,9 @@ mod tests {
         assert!(!shows_format("hello world"));
         assert!(!shows_format("line one\nline two"));
         assert!(!shows_format("https://example.com/path"));
+        assert!(!shows_format("https://example.com/search?q=hello%20world"));
+        assert!(shows_format("example.com/search?q=hello world"));
+        assert!(shows_format("www.example.com/a b"));
         assert!(!shows_format("name,age\nalice,30\nbob,40"));
         assert!(!shows_format("name\tage\nalice\t30\nbob\t40"));
         let pretty = "{\n  \"name\": \"copycraft\"\n}";

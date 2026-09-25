@@ -2,11 +2,10 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use global_hotkey::hotkey::{Code, HotKey, Modifiers};
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use tray_icon::{
     MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent,
-    menu::{IconMenuItem, Menu, MenuEvent, MenuItem, NativeIcon, PredefinedMenuItem, TextStyle},
+    menu::{IconMenuItem, Menu, MenuEvent, MenuItem, NativeIcon, TextStyle},
 };
 use winit::{
     application::ApplicationHandler,
@@ -15,10 +14,10 @@ use winit::{
 };
 
 use crate::appearance::{self, Theme};
-use crate::badge;
 use crate::clipboard::{self, ClipboardHistory, ClipboardView};
 use crate::commands::{self, CommandId, Hist, LaunchData, SubjectKind};
 use crate::format;
+use crate::hotkey;
 use crate::icon;
 use crate::launcher::{self, UserEvent};
 use crate::preview::{self, PreviewAction};
@@ -27,6 +26,7 @@ const REFRESH: Duration = Duration::from_millis(400);
 
 struct App {
     tray: TrayIcon,
+    shown_accent: Option<[u8; 4]>,
     history: ClipboardHistory,
     current_image: Option<Arc<[u8]>>,
     recorded_image_change: Option<isize>,
@@ -44,7 +44,6 @@ struct ClipSig {
     image: bool,
     image_change: isize,
     history_len: usize,
-    badge: bool,
 }
 
 impl Default for ClipSig {
@@ -54,7 +53,6 @@ impl Default for ClipSig {
             image: false,
             image_change: -1,
             history_len: usize::MAX,
-            badge: !badge::DEFAULT_SHOWN,
         }
     }
 }
@@ -78,14 +76,9 @@ impl ApplicationHandler<UserEvent> for App {
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         while let Ok(event) = MenuEvent::receiver().try_recv() {
-            match event.id.0.as_str() {
-                "quit" => {
-                    event_loop.exit();
-                    return;
-                }
-                "open" => self.reveal_popup(),
-                "hide_badge" => self.set_badge(false),
-                _ => {}
+            if event.id.0.as_str() == "quit" {
+                event_loop.exit();
+                return;
             }
         }
 
@@ -119,6 +112,8 @@ impl App {
     fn run_command(&mut self, event_loop: &ActiveEventLoop, id: CommandId) {
         match id {
             CommandId::Preview => self.show_current(PreviewAction::Original),
+            CommandId::Copy => self.copy_current_text(),
+            CommandId::Visit => self.visit_current(),
             CommandId::Format => self.show_current(PreviewAction::Format),
             CommandId::Convert => self.show_current(PreviewAction::Convert),
             CommandId::Decode => self.show_current(PreviewAction::Decode),
@@ -131,7 +126,6 @@ impl App {
             CommandId::ImageFile => self.copy_image_file(),
             CommandId::ClearClipboard => self.clear_clipboard(),
             CommandId::ClearHistory => self.clear_history(),
-            CommandId::ToggleMenuBar => self.set_badge(!badge::is_shown()),
             CommandId::Appearance(theme) => {
                 theme.save();
                 self.refresh_popup();
@@ -159,14 +153,6 @@ impl App {
         let view = ClipboardView::from_os();
         self.record_current(&view);
         launcher::sync(self.launch_data(&view));
-    }
-
-    fn set_badge(&mut self, shown: bool) {
-        badge::set_shown(shown);
-        if let Err(e) = self.tray.set_visible(shown) {
-            eprintln!("menu bar badge failed: {e}");
-        }
-        self.refresh_popup();
     }
 
     fn launch_data(&self, view: &ClipboardView) -> LaunchData {
@@ -197,8 +183,44 @@ impl App {
             image: image_facts(view),
             history,
             can_clear_history: !self.history.is_empty(),
-            menu_bar_shown: badge::is_shown(),
             theme: Theme::load(),
+        }
+    }
+
+    fn visit_current(&self) {
+        let Some(text) = ClipboardView::from_os().text().map(str::to_string) else {
+            return;
+        };
+        let url = crate::page_preview::page_url(&text)
+            .map(str::to_string)
+            .or_else(|| crate::youtube::video_id(&text).map(|_| text.trim().to_string()));
+        let Some(url) = url else {
+            return;
+        };
+        #[cfg(target_os = "macos")]
+        std::thread::spawn(move || {
+            if let Err(e) = std::process::Command::new("open").arg(url).status() {
+                eprintln!("visit failed: {e}");
+            }
+        });
+        #[cfg(not(target_os = "macos"))]
+        let _ = url;
+    }
+
+    fn copy_current_text(&mut self) {
+        let Some(text) = ClipboardView::from_os()
+            .text()
+            .map(str::trim)
+            .map(str::to_string)
+        else {
+            return;
+        };
+        if text.is_empty() {
+            return;
+        }
+        self.skip_record = Some(text.clone());
+        if let Err(e) = clipboard::write_clipboard(&text) {
+            eprintln!("copy failed: {e}");
         }
     }
 
@@ -331,13 +353,36 @@ impl App {
             image: view.is_image(),
             image_change,
             history_len: self.history.labels().len(),
-            badge: badge::is_shown(),
         };
         if signature == self.signature {
             return false;
         }
         self.signature = signature;
+        self.sync_icon(icon::accent_for_kind(detected_kind(&view)));
         true
+    }
+
+    fn sync_icon(&mut self, accent: Option<[u8; 4]>) {
+        if accent == self.shown_accent {
+            return;
+        }
+        self.shown_accent = accent;
+        match icon::menu_icon_tinted(accent) {
+            Ok(icon) => {
+                if let Err(e) = self.tray.set_icon(Some(icon)) {
+                    eprintln!("menu bar icon failed: {e}");
+                }
+            }
+            Err(e) => eprintln!("menu bar icon failed: {e}"),
+        }
+    }
+}
+
+fn detected_kind(view: &ClipboardView) -> Option<format::FormatKind> {
+    match view {
+        ClipboardView::Image => Some(format::FormatKind::Image),
+        ClipboardView::Text(text) => Some(format::detect(text)),
+        ClipboardView::Empty | ClipboardView::NoText => None,
     }
 }
 
@@ -378,27 +423,28 @@ fn version_label() -> String {
     format!("Copycraft {}", env!("CARGO_PKG_VERSION"))
 }
 
-fn version_item() -> MenuItem {
-    let label = version_label();
-    let item = MenuItem::new(&label, false, None);
-    item.set_styled_text(vec![(label, TextStyle::Secondary)]);
+fn status_labels() -> [String; 3] {
+    [
+        hotkey::LABEL.to_string(),
+        version_label(),
+        "Quit".to_string(),
+    ]
+}
+
+fn info_item(label: &str) -> MenuItem {
+    let item = MenuItem::new(label, false, None);
+    item.set_styled_text(vec![(label.to_string(), TextStyle::Secondary)]);
     item
 }
 
-fn badge_menu() -> Menu {
+fn status_menu() -> Menu {
+    let [hotkey, version, quit] = status_labels();
     let menu = Menu::new();
-    let _ = menu.append(&MenuItem::with_id("open", "Open    ⌃⌥⌘F", true, None));
-    let _ = menu.append(&MenuItem::with_id(
-        "hide_badge",
-        "Hide menu bar icon",
-        true,
-        None,
-    ));
-    let _ = menu.append(&PredefinedMenuItem::separator());
-    let _ = menu.append(&version_item());
+    let _ = menu.append(&info_item(&hotkey));
+    let _ = menu.append(&info_item(&version));
     let _ = menu.append(&IconMenuItem::with_id_and_native_icon(
         "quit",
-        "Quit",
+        &quit,
         true,
         Some(NativeIcon::StopProgress),
         None,
@@ -408,10 +454,7 @@ fn badge_menu() -> Menu {
 
 fn register_format_hotkey() -> Result<(GlobalHotKeyManager, u32), Box<dyn std::error::Error>> {
     let manager = GlobalHotKeyManager::new()?;
-    let hotkey = HotKey::new(
-        Some(Modifiers::CONTROL | Modifiers::ALT | Modifiers::SUPER),
-        Code::KeyF,
-    );
+    let hotkey = hotkey::open();
     let id = hotkey.id();
     manager.register(hotkey)?;
     Ok((manager, id))
@@ -424,19 +467,17 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let tray = TrayIconBuilder::new()
         .with_icon(icon)
         .with_icon_as_template(false)
-        .with_menu(Box::new(badge_menu()))
+        .with_menu(Box::new(status_menu()))
         .with_menu_on_left_click(false)
         .with_tooltip("Copycraft")
         .build()?;
-    if !badge::is_shown() {
-        tray.set_visible(false)?;
-    }
 
     let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
     launcher::install_proxy(event_loop.create_proxy());
 
     let mut app = App {
         tray,
+        shown_accent: None,
         history: ClipboardHistory::default(),
         current_image: None,
         recorded_image_change: None,
@@ -453,13 +494,53 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod tests {
-    use super::version_label;
+    use super::{detected_kind, status_labels, version_label};
+    use crate::clipboard::ClipboardView;
+    use crate::format::FormatKind;
+    use crate::hotkey;
+    use crate::icon;
 
     #[test]
     fn version_label_includes_package_version() {
         assert_eq!(
             version_label(),
             format!("Copycraft {}", env!("CARGO_PKG_VERSION"))
+        );
+    }
+
+    #[test]
+    fn icon_accent_follows_detected_content() {
+        assert_eq!(
+            icon::accent_for_kind(detected_kind(&ClipboardView::Empty)),
+            None
+        );
+        assert_eq!(
+            icon::accent_for_kind(detected_kind(&ClipboardView::Text("hello".into()))),
+            None
+        );
+        assert_eq!(
+            icon::accent_for_kind(detected_kind(&ClipboardView::Text(r#"{"a":1}"#.into()))),
+            FormatKind::Json.accent_rgba()
+        );
+        assert_eq!(
+            icon::accent_for_kind(detected_kind(&ClipboardView::Text("fn main() {}".into()))),
+            FormatKind::Rust.accent_rgba()
+        );
+        assert_eq!(
+            icon::accent_for_kind(detected_kind(&ClipboardView::Image)),
+            FormatKind::Image.accent_rgba()
+        );
+    }
+
+    #[test]
+    fn status_menu_lists_hotkey_then_version_then_quit() {
+        assert_eq!(
+            status_labels(),
+            [
+                hotkey::LABEL.to_string(),
+                version_label(),
+                "Quit".to_string(),
+            ]
         );
     }
 }
