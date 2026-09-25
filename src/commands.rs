@@ -605,22 +605,40 @@ fn text_meta(text: &str) -> String {
     }
 }
 
+/// Pasted size. Megabytes from 0.01 MB up; kilobytes below that.
 fn format_bytes(n: usize) -> String {
-    if n >= 1_000_000 {
-        format_unit(n as f64 / 1_000_000.0, "MB")
-    } else if n >= 1_000 {
-        format_unit(n as f64 / 1_000.0, "KB")
+    if n < 10_000 {
+        format_kilobytes(n)
     } else {
-        format!("{n} B")
+        format_megabytes(n)
     }
 }
 
-fn format_unit(value: f64, unit: &str) -> String {
-    if value >= 100.0 || (value - value.round()).abs() < 0.05 {
-        format!("{:.0} {unit}", value.round())
+fn format_megabytes(n: usize) -> String {
+    let mb = n as f64 / 1_000_000.0;
+    let places = if mb >= 100.0 {
+        0
+    } else if mb >= 10.0 {
+        1
     } else {
-        format!("{value:.1} {unit}")
+        2
+    };
+    format!("{mb:.places$} MB")
+}
+
+fn format_kilobytes(n: usize) -> String {
+    if n == 0 {
+        return "0 KB".to_string();
     }
+    let kb = n as f64 / 1_000.0;
+    if kb >= 1.0 {
+        return format!("{kb:.1} KB");
+    }
+    let mut body = format!("{kb:.3}");
+    while body.contains('.') && body.ends_with('0') {
+        body.pop();
+    }
+    format!("{body} KB")
 }
 
 fn clip_chars(text: &str, max: usize) -> String {
@@ -750,7 +768,7 @@ mod tests {
         });
         let card = work_card(&input);
         assert_eq!(card.title, "Image");
-        assert_eq!(card.meta, "PNG  1280×720  184 KB");
+        assert_eq!(card.meta, "PNG  1280×720  0.18 MB");
         assert!(card.shows_image);
         assert!(card.excerpt.is_empty());
         assert_eq!(
@@ -823,11 +841,26 @@ mod tests {
     }
 
     #[test]
+    fn pasted_size_uses_kilobytes_when_small() {
+        assert_eq!(super::format_bytes(0), "0 KB");
+        assert_eq!(super::format_bytes(12), "0.012 KB");
+        assert_eq!(super::format_bytes(1_500), "1.5 KB");
+        assert_eq!(super::format_bytes(9_000), "9.0 KB");
+        assert_eq!(super::format_bytes(184_000), "0.18 MB");
+        assert_eq!(super::format_bytes(2_000_000), "2.00 MB");
+        assert_eq!(super::format_bytes(15_500_000), "15.5 MB");
+        assert_eq!(super::format_bytes(250_000_000), "250 MB");
+        let card = work_card(&data(SubjectKind::Text, Some("hello")));
+        assert_eq!(card.meta, "0.005 KB");
+    }
+
+    #[test]
     fn text_card_shows_the_payload_not_a_label() {
         let card = work_card(&data(SubjectKind::Text, Some("{\n  \"a\": 1\n}")));
         assert_eq!(card.title, "JSON");
         assert_eq!(card.excerpt, "{\n  \"a\": 1\n}");
         assert!(card.meta.contains("lines"));
+        assert!(card.meta.contains("KB"));
         assert!(!card.excerpt.contains("Preview"));
         assert!(!card.shows_image);
     }

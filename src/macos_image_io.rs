@@ -20,6 +20,8 @@ unsafe extern "C" {
     static kCGImageSourceThumbnailMaxPixelSize: CFStringRef;
     static kCGImageSourceCreateThumbnailFromImageAlways: CFStringRef;
     static kCGImageSourceCreateThumbnailWithTransform: CFStringRef;
+    static kCGImageSourceShouldCache: CFStringRef;
+    static kCGImageSourceShouldCacheImmediately: CFStringRef;
     static kCGImagePropertyPixelWidth: CFStringRef;
     static kCGImagePropertyPixelHeight: CFStringRef;
     static kCGImagePropertyOrientation: CFStringRef;
@@ -58,6 +60,7 @@ unsafe extern "C" {
 #[link(name = "CoreFoundation", kind = "framework")]
 unsafe extern "C" {
     static kCFBooleanTrue: *const c_void;
+    static kCFBooleanFalse: *const c_void;
     fn CFRelease(cf: *const c_void);
     fn CFNumberCreate(
         allocator: *const c_void,
@@ -119,7 +122,9 @@ struct Owned(*const c_void);
 
 impl Owned {
     fn new(ptr: *const c_void) -> Option<Self> {
-        (!ptr.is_null()).then_some(Self(ptr))
+        // `then_some` builds its argument before the check. `Owned(null)`
+        // would then drop through `CFRelease(NULL)`, which traps.
+        if ptr.is_null() { None } else { Some(Self(ptr)) }
     }
 
     fn get(&self) -> *const c_void {
@@ -129,23 +134,50 @@ impl Owned {
 
 impl Drop for Owned {
     fn drop(&mut self) {
-        unsafe { CFRelease(self.0) }
+        if !self.0.is_null() {
+            unsafe { CFRelease(self.0) }
+        }
     }
 }
 
 pub(crate) fn preview_from_bytes(bytes: &[u8]) -> Option<ClipboardImage> {
     let data = NSData::with_bytes(bytes);
+    let options = source_options();
+    let options_ptr = options.as_ref().map(Owned::get).unwrap_or(std::ptr::null());
     let source =
-        unsafe { CGImageSourceCreateWithData(Retained::as_ptr(&data).cast(), std::ptr::null()) };
+        unsafe { CGImageSourceCreateWithData(Retained::as_ptr(&data).cast(), options_ptr) };
     preview_from_source(source)
 }
 
 pub(crate) fn preview_from_path(path: &Path) -> Option<ClipboardImage> {
     let text = path.to_str()?;
     let url = NSURL::fileURLWithPath(&NSString::from_str(text));
-    let source =
-        unsafe { CGImageSourceCreateWithURL(Retained::as_ptr(&url).cast(), std::ptr::null()) };
+    let options = source_options();
+    let options_ptr = options.as_ref().map(Owned::get).unwrap_or(std::ptr::null());
+    let source = unsafe { CGImageSourceCreateWithURL(Retained::as_ptr(&url).cast(), options_ptr) };
     preview_from_source(source)
+}
+
+/// Keep ImageIO from decoding a large paste into a full bitmap just to read it.
+fn source_options() -> Option<Owned> {
+    let keys = unsafe {
+        [
+            kCGImageSourceShouldCache,
+            kCGImageSourceShouldCacheImmediately,
+        ]
+    };
+    let values = unsafe { [kCFBooleanFalse, kCFBooleanFalse] };
+    let dict = unsafe {
+        CFDictionaryCreate(
+            std::ptr::null(),
+            keys.as_ptr(),
+            values.as_ptr(),
+            2,
+            &kCFTypeDictionaryKeyCallBacks,
+            &kCFTypeDictionaryValueCallBacks,
+        )
+    };
+    Owned::new(dict)
 }
 
 fn preview_from_source(source: *mut c_void) -> Option<ClipboardImage> {
@@ -302,6 +334,17 @@ mod tests {
             .write_image(rgba, width, height, ExtendedColorType::Rgba8)
             .expect("png");
         buf
+    }
+
+    #[test]
+    fn unreadable_image_returns_none_without_releasing_null() {
+        assert!(preview_from_bytes(b"not an image").is_none());
+        let path = std::env::temp_dir().join("copycraft-not-an-image.txt");
+        std::fs::write(&path, b"hello").expect("write");
+        let preview = preview_from_path(&path);
+        let _ = std::fs::remove_file(&path);
+        assert!(preview.is_none());
+        assert!(preview_from_path(std::path::Path::new("/no/such/copycraft-image.png")).is_none());
     }
 
     #[test]
