@@ -53,8 +53,6 @@ thread_local! {
     static LINK_IN_FLIGHT: RefCell<Option<String>> = const { RefCell::new(None) };
     static LINK_FAILED: RefCell<Option<String>> = const { RefCell::new(None) };
     static LINK_GEN: Cell<u64> = const { Cell::new(0) };
-    static COPY_SHOWN: Cell<bool> = const { Cell::new(false) };
-    static COPY_TICKET: Cell<u64> = const { Cell::new(0) };
     static WINDOW: RefCell<Option<Retained<LauncherWindow>>> = const { RefCell::new(None) };
     static FIELD: RefCell<Option<Retained<NSTextField>>> = const { RefCell::new(None) };
     static HEADER: RefCell<Option<Retained<NSTextField>>> = const { RefCell::new(None) };
@@ -271,7 +269,6 @@ fn hide() {
     });
     SUPPRESS_RESIGN.with(|flag| flag.set(false));
     OPEN.set(false);
-    COPY_SHOWN.set(false);
 }
 
 fn window_is_visible() -> bool {
@@ -386,7 +383,7 @@ fn layout(fresh_place: bool) {
         ACTIONS.with(|slot| slot.borrow().clone())
     };
     let meta = resolved_meta();
-    let labels: Vec<String> = shown.iter().map(chip_label).collect();
+    let labels: Vec<String> = shown.iter().map(|cmd| cmd.title.clone()).collect();
     let titles: Vec<&str> = labels.iter().map(String::as_str).collect();
     let inner = WIDTH - PAD * 2.0;
     let frames = if shown.is_empty() {
@@ -643,8 +640,15 @@ fn apply_preview(y: f64) {
     THUMB_TOKEN.set(-1);
     let excerpt = CARD_EXCERPT.with(|slot| slot.borrow().clone());
     let placeholder = CARD_PLACEHOLDER.with(|slot| slot.borrow().clone());
-    let payload = !excerpt.is_empty();
-    let body = if payload { excerpt } else { placeholder };
+    let failed = link_preview_failed();
+    let payload = !excerpt.is_empty() && !failed;
+    let body = if failed {
+        "No preview".to_string()
+    } else if !excerpt.is_empty() {
+        excerpt
+    } else {
+        placeholder
+    };
     PREVIEW_TEXT.with(|slot| {
         let borrowed = slot.borrow();
         let Some(view) = borrowed.as_ref() else {
@@ -705,21 +709,34 @@ fn ensure_link_preview() {
     });
 }
 
+fn link_preview_failed() -> bool {
+    let page = LINK_PAGE.with(|slot| slot.borrow().clone());
+    LINK_FAILED.with(|slot| slot.borrow().as_deref() == page.as_deref() && page.is_some())
+}
+
+fn usable_thumbnail(bytes: &[u8]) -> bool {
+    bytes.len() > 8_000 && (bytes.starts_with(b"\xFF\xD8") || bytes.starts_with(b"\x89PNG"))
+}
+
 fn load_link_preview(page: &str, thumb: Option<&str>) -> (Vec<u8>, Option<String>) {
-    if let Some(thumb) = thumb {
-        let bytes = crate::macos_fetch::get(thumb).unwrap_or_default();
-        let caption = crate::macos_fetch::get(&crate::youtube::oembed_endpoint(page))
+    if let Some(id) = crate::youtube::video_id(page) {
+        let bytes = crate::macos_fetch::get(&crate::youtube::wide_thumbnail_url(id))
+            .filter(|bytes| usable_thumbnail(bytes))
+            .or_else(|| thumb.and_then(crate::macos_fetch::get))
+            .unwrap_or_default();
+        let watch = crate::format::format_text(page);
+        let caption = crate::macos_fetch::get(&crate::youtube::oembed_endpoint(&watch))
             .and_then(|body| crate::youtube::caption_from_oembed(&body));
         return (bytes, caption);
     }
-    let html = crate::macos_fetch::get_document(page).unwrap_or_default();
-    let end = html.len().min(256 * 1024);
-    let text = String::from_utf8_lossy(&html[..end]);
-    let found = crate::page_preview::from_html(&text, page);
+    let fetch_at = crate::page_preview::canonical_url(page).unwrap_or_else(|| page.to_string());
+    let html = crate::macos_fetch::get_document(&fetch_at).unwrap_or_default();
+    let text = String::from_utf8_lossy(&html);
+    let found = crate::page_preview::from_html(&text, &fetch_at);
     let bytes = found
         .image
         .as_deref()
-        .and_then(crate::macos_fetch::get_document)
+        .and_then(crate::macos_fetch::get_asset)
         .unwrap_or_default();
     (bytes, found.title)
 }
@@ -809,7 +826,7 @@ fn rebuild_pills(
             NSSize::new((frame.width - 16.0).max(8.0), 18.0),
         ));
         title.setLineBreakMode(NSLineBreakMode::ByTruncatingTail);
-        title.setStringValue(&NSString::from_str(&chip_label(cmd)));
+        title.setStringValue(&NSString::from_str(&cmd.title));
         let hit = NSButton::initWithFrame(
             NSButton::alloc(mtm),
             NSRect::new(
@@ -829,45 +846,29 @@ fn rebuild_pills(
     }
 }
 
-fn chip_label(cmd: &Command) -> String {
-    if cmd.id == CommandId::Copy && COPY_SHOWN.with(Cell::get) {
-        commands::COPIED_LABEL.to_string()
-    } else {
-        cmd.title.clone()
-    }
-}
-
 fn paint_pills() {
     if SHOWN.with(|slot| slot.borrow().is_empty()) {
         return;
     }
     let selected = SELECTION.with(Cell::get);
-    let copied = COPY_SHOWN.with(Cell::get);
-    let shown = SHOWN.with(|slot| slot.borrow().clone());
     PILLS.with(|slot| {
         let borrowed = slot.borrow();
         let Some(list) = borrowed.as_ref() else {
             return;
         };
         for (index, pill) in list.subviews().iter().enumerate() {
-            let copy_flash = copied
-                && shown
-                    .get(index)
-                    .is_some_and(|cmd| cmd.id == CommandId::Copy);
-            paint_pill(&pill, index == selected, copy_flash);
+            paint_pill(&pill, index == selected);
         }
     });
 }
 
-fn paint_pill(pill: &NSView, selected: bool, copied: bool) {
-    let fill = if copied {
-        NSColor::systemGreenColor()
-    } else if selected {
+fn paint_pill(pill: &NSView, selected: bool) {
+    let fill = if selected {
         NSColor::controlAccentColor()
     } else {
         NSColor::unemphasizedSelectedContentBackgroundColor()
     };
-    let text = if copied || selected {
+    let text = if selected {
         NSColor::whiteColor()
     } else {
         NSColor::labelColor()
@@ -908,35 +909,12 @@ fn activate_overflow(index: usize) {
 }
 
 fn run_command(cmd: Command) {
-    let copy = cmd.id == CommandId::Copy;
-    if !commands::keeps_card_open(&cmd.id) {
+    let formatting_link =
+        cmd.id == CommandId::Format && LINK_PAGE.with(|slot| slot.borrow().is_some());
+    if !commands::keeps_card_open(&cmd.id) && !formatting_link {
         hide();
     }
     launcher::emit(UserEvent::Run(cmd.id));
-    if copy {
-        show_copied();
-    }
-}
-
-fn show_copied() {
-    let ticket = COPY_TICKET.with(|cell| {
-        let next = cell.get().wrapping_add(1);
-        cell.set(next);
-        next
-    });
-    COPY_SHOWN.set(true);
-    layout(false);
-    let when = dispatch2::DispatchTime::try_from(std::time::Duration::from_millis(1600))
-        .unwrap_or(dispatch2::DispatchTime::NOW);
-    let _ = dispatch2::DispatchQueue::main().after(when, move || {
-        if COPY_TICKET.with(Cell::get) != ticket {
-            return;
-        }
-        COPY_SHOWN.set(false);
-        if OPEN.with(Cell::get) {
-            layout(false);
-        }
-    });
 }
 
 fn pop_overflow() {

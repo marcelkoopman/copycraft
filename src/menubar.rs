@@ -33,7 +33,6 @@ struct App {
     skip_image_change: Option<isize>,
     skip_record: Option<String>,
     signature: ClipSig,
-    welcomed: bool,
     _hotkeys: GlobalHotKeyManager,
     format_hotkey_id: u32,
 }
@@ -58,13 +57,7 @@ impl Default for ClipSig {
 }
 
 impl ApplicationHandler<UserEvent> for App {
-    fn resumed(&mut self, _: &ActiveEventLoop) {
-        if self.welcomed {
-            return;
-        }
-        self.welcomed = true;
-        self.reveal_popup();
-    }
+    fn resumed(&mut self, _: &ActiveEventLoop) {}
 
     fn window_event(&mut self, _: &ActiveEventLoop, _: winit::window::WindowId, _: WindowEvent) {}
 
@@ -112,9 +105,12 @@ impl App {
     fn run_command(&mut self, event_loop: &ActiveEventLoop, id: CommandId) {
         match id {
             CommandId::Preview => self.show_current(PreviewAction::Original),
-            CommandId::Copy => self.copy_current_text(),
             CommandId::Visit => self.visit_current(),
-            CommandId::Format => self.show_current(PreviewAction::Format),
+            CommandId::Format => {
+                if !self.format_link_in_place() {
+                    self.show_current(PreviewAction::Format);
+                }
+            }
             CommandId::Convert => self.show_current(PreviewAction::Convert),
             CommandId::Decode => self.show_current(PreviewAction::Decode),
             CommandId::Compress => self.show_current(PreviewAction::Compress),
@@ -191,12 +187,13 @@ impl App {
         let Some(text) = ClipboardView::from_os().text().map(str::to_string) else {
             return;
         };
-        let url = crate::page_preview::page_url(&text)
+        let raw = crate::page_preview::page_url(&text)
             .map(str::to_string)
             .or_else(|| crate::youtube::video_id(&text).map(|_| text.trim().to_string()));
-        let Some(url) = url else {
+        let Some(raw) = raw else {
             return;
         };
+        let url = crate::format::format_text(&raw);
         #[cfg(target_os = "macos")]
         std::thread::spawn(move || {
             if let Err(e) = std::process::Command::new("open").arg(url).status() {
@@ -207,21 +204,24 @@ impl App {
         let _ = url;
     }
 
-    fn copy_current_text(&mut self) {
-        let Some(text) = ClipboardView::from_os()
-            .text()
-            .map(str::trim)
-            .map(str::to_string)
-        else {
-            return;
+    fn format_link_in_place(&mut self) -> bool {
+        let Some(text) = ClipboardView::from_os().text().map(str::to_string) else {
+            return false;
         };
-        if text.is_empty() {
-            return;
+        let link = crate::page_preview::page_url(&text).is_some()
+            || crate::youtube::video_id(&text).is_some();
+        if !link {
+            return false;
         }
-        self.skip_record = Some(text.clone());
-        if let Err(e) = clipboard::write_clipboard(&text) {
-            eprintln!("copy failed: {e}");
+        let formatted = crate::format::format_text(text.trim());
+        if formatted != text.trim() {
+            if let Err(e) = clipboard::write_clipboard(&formatted) {
+                eprintln!("format link failed: {e}");
+            } else {
+                self.refresh_popup();
+            }
         }
+        true
     }
 
     fn copy_image_text(&mut self, data_url: bool) {
@@ -359,6 +359,7 @@ impl App {
         }
         self.signature = signature;
         self.sync_icon(icon::accent_for_kind(detected_kind(&view)));
+        self.sync_tooltip(&view);
         true
     }
 
@@ -374,6 +375,30 @@ impl App {
                 }
             }
             Err(e) => eprintln!("menu bar icon failed: {e}"),
+        }
+    }
+
+    fn sync_tooltip(&self, view: &ClipboardView) {
+        if let Err(e) = self.tray.set_tooltip(Some(icon_tip(view))) {
+            eprintln!("menu bar tooltip failed: {e}");
+        }
+    }
+}
+
+fn icon_tip(view: &ClipboardView) -> String {
+    match view {
+        ClipboardView::Image => "Image".to_string(),
+        ClipboardView::Empty | ClipboardView::NoText => "Copycraft".to_string(),
+        ClipboardView::Text(text) => {
+            if crate::youtube::video_id(text).is_some() {
+                "YouTube".to_string()
+            } else if let Some(host) =
+                crate::page_preview::page_url(text).and_then(crate::page_preview::host)
+            {
+                host.to_string()
+            } else {
+                format::detect(text).source_heading().to_string()
+            }
         }
     }
 }
@@ -484,7 +509,6 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         skip_image_change: None,
         skip_record: None,
         signature: ClipSig::default(),
-        welcomed: false,
         _hotkeys: hotkeys,
         format_hotkey_id,
     };

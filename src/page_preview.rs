@@ -4,19 +4,31 @@ pub fn page_url(text: &str) -> Option<&str> {
     if text.is_empty() || text.contains(char::is_whitespace) {
         return None;
     }
-    if crate::youtube::video_id(text).is_some() {
+    if crate::youtube::video_id(text).is_some() || !crate::format::looks_like_url(text) {
         return None;
     }
-    let rest = text
-        .strip_prefix("https://")
-        .or_else(|| text.strip_prefix("http://"))?;
-    if rest.is_empty() || rest.starts_with('/') {
-        return None;
-    }
-    if is_file_url(rest) {
+    let rest = without_scheme(text);
+    if rest.is_empty() || rest.starts_with('/') || is_file_url(rest) {
         return None;
     }
     Some(text)
+}
+
+/// Address used to fetch and open a page, with `https://` added when missing.
+pub fn canonical_url(text: &str) -> Option<String> {
+    let page = page_url(text)?;
+    Some(crate::format::format_text(page))
+}
+
+fn without_scheme(text: &str) -> &str {
+    let Some((scheme, rest)) = text.split_once("://") else {
+        return text;
+    };
+    if scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https") {
+        rest
+    } else {
+        text
+    }
 }
 
 pub fn host(url: &str) -> Option<&str> {
@@ -34,6 +46,7 @@ pub struct HtmlPreview {
 }
 
 pub fn from_html(html: &str, page: &str) -> HtmlPreview {
+    let html = html_head(html);
     let title = meta_content(html, "og:title")
         .or_else(|| meta_content(html, "twitter:title"))
         .or_else(|| title_tag(html));
@@ -50,6 +63,12 @@ const FILE_EXTS: &[&str] = &[
     "mov", "webm", "wav", "css", "js", "mjs", "json", "xml", "txt", "csv", "tsv", "ico", "woff",
     "woff2", "ttf", "otf", "wasm", "heic", "bmp", "tif", "tiff",
 ];
+
+fn html_head(html: &str) -> &str {
+    find_ci(html, "</head>")
+        .map(|index| &html[..index])
+        .unwrap_or(html)
+}
 
 fn is_file_url(rest: &str) -> bool {
     let path = match rest.find('/') {
@@ -262,6 +281,12 @@ mod tests {
             Some("https://www.example.com/index.html?x=1")
         );
         assert_eq!(page_url("https://example.com"), Some("https://example.com"));
+        assert_eq!(page_url("grok.com"), Some("grok.com"));
+        assert_eq!(page_url("www.grok.com/news"), Some("www.grok.com/news"));
+        assert_eq!(
+            super::canonical_url("grok.com").as_deref(),
+            Some("https://grok.com")
+        );
         assert_eq!(page_url("https://example.com/photo.jpg"), None);
         assert_eq!(page_url("https://example.com/file.pdf"), None);
         assert_eq!(

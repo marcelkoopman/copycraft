@@ -156,7 +156,7 @@ pub fn format_text(text: &str) -> String {
     }
 }
 
-fn looks_like_url(text: &str) -> bool {
+pub(crate) fn looks_like_url(text: &str) -> bool {
     let text = text.trim();
     if text.is_empty() || text.contains(['\n', '\t']) {
         return false;

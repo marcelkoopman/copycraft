@@ -4,9 +4,10 @@ pub fn video_id(text: &str) -> Option<&str> {
     if text.is_empty() || text.contains(char::is_whitespace) {
         return None;
     }
-    let rest = text
-        .strip_prefix("https://")
-        .or_else(|| text.strip_prefix("http://"))?;
+    let rest = strip_http(text);
+    if rest.is_empty() || rest.starts_with('/') {
+        return None;
+    }
     let (host, path) = rest.split_once('/')?;
     let host = host.split(':').next().unwrap_or(host);
     let host = host.strip_prefix("www.").unwrap_or(host);
@@ -30,8 +31,23 @@ pub fn video_id(text: &str) -> Option<&str> {
     }
 }
 
+pub fn wide_thumbnail_url(id: &str) -> String {
+    format!("https://i.ytimg.com/vi/{id}/hq720.jpg")
+}
+
 pub fn thumbnail_url(id: &str) -> String {
     format!("https://i.ytimg.com/vi/{id}/hqdefault.jpg")
+}
+
+fn strip_http(text: &str) -> &str {
+    let Some((scheme, rest)) = text.split_once("://") else {
+        return text;
+    };
+    if scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https") {
+        rest
+    } else {
+        text
+    }
 }
 
 pub fn oembed_endpoint(page: &str) -> String {
@@ -129,6 +145,7 @@ mod tests {
             video_id("http://www.youtube-nocookie.com/embed/bEN9Dyg48b0"),
             Some("bEN9Dyg48b0")
         );
+        assert_eq!(video_id("youtu.be/bEN9Dyg48b0"), Some("bEN9Dyg48b0"));
     }
 
     #[test]
@@ -145,6 +162,10 @@ mod tests {
         assert_eq!(
             thumbnail_url("bEN9Dyg48b0"),
             "https://i.ytimg.com/vi/bEN9Dyg48b0/hqdefault.jpg"
+        );
+        assert_eq!(
+            super::wide_thumbnail_url("bEN9Dyg48b0"),
+            "https://i.ytimg.com/vi/bEN9Dyg48b0/hq720.jpg"
         );
         assert_eq!(
             oembed_endpoint(WATCH),

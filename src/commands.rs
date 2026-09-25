@@ -7,7 +7,6 @@ use crate::toolbar_visibility;
 pub const MAX_VISIBLE: usize = 8;
 pub const CHIP_PITCH: f64 = 34.0;
 pub const CHIP_PILL_H: f64 = 28.0;
-pub const COPIED_LABEL: &str = "Copied!";
 
 const CHIP_GAP: f64 = 6.0;
 const EXCERPT_LINES: usize = 6;
@@ -49,7 +48,6 @@ pub struct LaunchData {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommandId {
     Preview,
-    Copy,
     Visit,
     Format,
     Convert,
@@ -394,8 +392,7 @@ pub fn step_chip(frames: &[ChipFrame], index: usize, dx: isize, dy: isize) -> us
 pub fn keeps_card_open(id: &CommandId) -> bool {
     matches!(
         id,
-        CommandId::Copy
-            | CommandId::Appearance(_)
+        CommandId::Appearance(_)
             | CommandId::ClearClipboard
             | CommandId::ClearHistory
             | CommandId::ImageBase64
@@ -671,7 +668,6 @@ mod tests {
         assert!(!card.shows_image);
         let input = data(SubjectKind::Text, Some(url));
         assert_eq!(titles(&chips(&input)), vec!["Visit"]);
-        assert!(chips(&input).iter().all(|cmd| cmd.id != CommandId::Copy));
     }
 
     #[test]
@@ -684,7 +680,15 @@ mod tests {
         assert!(card.link_thumb.is_none());
         assert_eq!(card.excerpt, url);
         assert_eq!(titles(&chips(&input)), vec!["Visit"]);
-        assert!(chips(&input).iter().all(|cmd| cmd.id != CommandId::Copy));
+    }
+
+    #[test]
+    fn bare_host_previews_as_a_page() {
+        let input = data(SubjectKind::Text, Some("grok.com"));
+        let card = work_card(&input);
+        assert_eq!(card.title, "grok.com");
+        assert_eq!(card.link_page.as_deref(), Some("grok.com"));
+        assert_eq!(titles(&chips(&input)), vec!["Visit", "Format"]);
     }
 
     #[test]
@@ -818,8 +822,7 @@ mod tests {
     #[test]
     fn chip_width_leaves_room_for_the_label() {
         assert!(chip_width("Copy") - 16.0 >= 44.0);
-        assert!(chip_width(super::COPIED_LABEL) >= chip_width("Copy"));
-        assert!(chip_width(super::COPIED_LABEL) - 16.0 >= 60.0);
+        assert!(chip_width("Visit") - 16.0 >= 44.0);
         assert!(chip_width("Base64") - 16.0 >= 58.0);
         assert!(chip_width("Preview") - 16.0 >= 60.0);
     }
