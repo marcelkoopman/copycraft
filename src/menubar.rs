@@ -30,6 +30,8 @@ struct App {
     tray: TrayIcon,
     shown_accent: Option<[u8; 4]>,
     history: ClipboardHistory,
+    /// Index into history while the arrows are browsing. 0 is the newest.
+    history_cursor: usize,
     current_image: Option<Arc<[u8]>>,
     recorded_image_change: Option<isize>,
     skip_image_change: Option<isize>,
@@ -129,6 +131,8 @@ impl App {
             CommandId::Redact => self.show_current(PreviewAction::Redact),
             CommandId::Dataframe => self.show_current(PreviewAction::Dataframe),
             CommandId::History(index) => self.restore_history(index),
+            CommandId::HistoryOlder => self.step_history(true),
+            CommandId::HistoryNewer => self.step_history(false),
             CommandId::ImageBase64 => self.copy_image_text(false),
             CommandId::ImageDataUrl => self.copy_image_text(true),
             CommandId::ImageFile => self.copy_image_file(),
@@ -186,6 +190,8 @@ impl App {
             image: image_facts(view),
             history,
             can_clear_history: !self.history.is_empty(),
+            history_nav: commands::history_nav(self.history.len(), self.history_cursor),
+            warm_links: warm_history_links(&self.history, self.history_cursor),
             theme: Theme::load(),
         }
     }
@@ -271,6 +277,7 @@ impl App {
         }
         self.current_image = None;
         self.history.clear();
+        self.history_cursor = 0;
     }
 
     fn clear_clipboard(&mut self) {
@@ -293,6 +300,64 @@ impl App {
         }
         if let Some(text) = view.text() {
             self.open_preview(text, action);
+        }
+    }
+
+    fn step_history(&mut self, older: bool) {
+        let Some(next) = commands::step_history(self.history.len(), self.history_cursor, older)
+        else {
+            return;
+        };
+        let previous = self.history_cursor;
+        self.history_cursor = next;
+        if !self.present_history(next) {
+            self.history_cursor = previous;
+        }
+    }
+
+    // Put a history entry on the clipboard without moving it to the front.
+    fn present_history(&mut self, index: usize) -> bool {
+        if self.history.image(index).is_some() {
+            return self.present_history_image(index);
+        }
+        let Some(text) = self.history.get(index).map(str::to_string) else {
+            return false;
+        };
+        // Recording would move this entry to the front, so the other arrow
+        // could no longer walk back through the list.
+        self.skip_record = Some(text.clone());
+        if let Err(e) = clipboard::write_clipboard(&text) {
+            eprintln!("restore history failed: {e}");
+            self.skip_record = None;
+            return false;
+        }
+        if launcher::is_open() {
+            self.refresh_popup();
+        }
+        true
+    }
+
+    fn present_history_image(&mut self, index: usize) -> bool {
+        let Some(bytes) = self.history.image(index) else {
+            return false;
+        };
+        #[cfg(target_os = "macos")]
+        {
+            if let Err(e) = crate::macos_pasteboard::write_history_image(&bytes) {
+                eprintln!("restore image failed: {e}");
+                return false;
+            }
+            self.skip_record = None;
+            self.skip_image_change = Some(crate::macos_pasteboard::change_count());
+            if launcher::is_open() {
+                self.refresh_popup();
+            }
+            true
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            self.open_stored_image(bytes);
+            false
         }
     }
 
@@ -352,6 +417,7 @@ impl App {
             self.recorded_image_change = Some(change);
             if let Some(bytes) = crate::macos_pasteboard::current_image_bytes() {
                 self.current_image = self.history.record_image(bytes);
+                self.history_cursor = 0;
             }
             return;
         }
@@ -361,6 +427,7 @@ impl App {
         {
             self.skip_record = None;
             self.history.record(text.to_string());
+            self.history_cursor = 0;
         }
     }
 
@@ -457,6 +524,11 @@ fn image_facts(view: &ClipboardView) -> Option<commands::ImageFacts> {
     {
         None
     }
+}
+
+fn warm_history_links(history: &ClipboardHistory, cursor: usize) -> Vec<String> {
+    let entries: Vec<Option<&str>> = (0..history.len()).map(|index| history.get(index)).collect();
+    commands::pages_around(&entries, cursor)
 }
 
 fn history_title(history: &ClipboardHistory, index: usize) -> String {
@@ -563,6 +635,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         tray,
         shown_accent: None,
         history: ClipboardHistory::default(),
+        history_cursor: 0,
         current_image: None,
         recorded_image_change: None,
         skip_image_change: None,

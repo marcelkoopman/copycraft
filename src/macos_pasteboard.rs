@@ -133,6 +133,23 @@ fn read_image_file(path: &std::path::Path) -> Option<DecodedPreview> {
     decode_bytes(bytes, false)
 }
 
+pub(crate) fn write_history_image(bytes: &[u8]) -> Result<(), String> {
+    if bytes.starts_with(b"\x89PNG") {
+        return write_png(bytes);
+    }
+    let (label, _) = sniff_image(bytes, false);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos())
+        .unwrap_or(0);
+    let path = std::env::temp_dir().join(format!(
+        "copycraft-history-{nanos}.{}",
+        extension_for(label)
+    ));
+    std::fs::write(&path, bytes).map_err(|err| err.to_string())?;
+    set_file_url(&path)
+}
+
 pub(crate) fn write_png(bytes: &[u8]) -> Result<(), String> {
     let pasteboard = NSPasteboard::generalPasteboard();
     let data = NSData::with_bytes(bytes);

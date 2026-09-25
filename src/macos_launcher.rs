@@ -47,12 +47,9 @@ thread_local! {
     static CARD_EXCERPT: RefCell<String> = const { RefCell::new(String::new()) };
     static CARD_PLACEHOLDER: RefCell<String> = const { RefCell::new(String::new()) };
     static LINK_PAGE: RefCell<Option<String>> = const { RefCell::new(None) };
-    static LINK_THUMB: RefCell<Option<String>> = const { RefCell::new(None) };
-    static LINK_IMAGE: RefCell<Option<(String, Retained<NSImage>)>> = const { RefCell::new(None) };
-    static LINK_CAPTION: RefCell<Option<(String, String)>> = const { RefCell::new(None) };
-    static LINK_IN_FLIGHT: RefCell<Option<String>> = const { RefCell::new(None) };
-    static LINK_FAILED: RefCell<Option<String>> = const { RefCell::new(None) };
-    static LINK_GEN: Cell<u64> = const { Cell::new(0) };
+    static LINK_CACHE: RefCell<Vec<(String, CachedLink)>> = const { RefCell::new(Vec::new()) };
+    static LINK_IN_FLIGHT: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    static WARM_LINKS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
     static WINDOW: RefCell<Option<Retained<LauncherWindow>>> = const { RefCell::new(None) };
     static FIELD: RefCell<Option<Retained<NSTextField>>> = const { RefCell::new(None) };
     static HEADER: RefCell<Option<Retained<NSTextField>>> = const { RefCell::new(None) };
@@ -61,6 +58,9 @@ thread_local! {
     static PREVIEW_TEXT: RefCell<Option<Retained<NSTextView>>> = const { RefCell::new(None) };
     static PREVIEW_IMAGE: RefCell<Option<Retained<NSImageView>>> = const { RefCell::new(None) };
     static PILLS: RefCell<Option<Retained<NSView>>> = const { RefCell::new(None) };
+    static HISTORY_NAV: RefCell<Option<commands::HistoryNav>> = const { RefCell::new(None) };
+    static OLDER: RefCell<Option<NavButton>> = const { RefCell::new(None) };
+    static NEWER: RefCell<Option<NavButton>> = const { RefCell::new(None) };
     static MORE: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static CLOSE: RefCell<Option<Retained<NSButton>>> = const { RefCell::new(None) };
     static DELEGATE: RefCell<Option<Retained<LauncherDelegate>>> = const { RefCell::new(None) };
@@ -173,6 +173,16 @@ define_class!(
             hide();
         }
 
+        #[unsafe(method(olderClicked:))]
+        fn older_clicked(&self, _sender: Option<&NSButton>) {
+            launcher::emit(UserEvent::Run(CommandId::HistoryOlder));
+        }
+
+        #[unsafe(method(newerClicked:))]
+        fn newer_clicked(&self, _sender: Option<&NSButton>) {
+            launcher::emit(UserEvent::Run(CommandId::HistoryNewer));
+        }
+
         #[unsafe(method(overflowClicked:))]
         fn overflow_clicked(&self, sender: Option<&NSMenuItem>) {
             let Some(item) = sender else {
@@ -249,12 +259,13 @@ fn store(data: LaunchData) {
     CARD_EXCERPT.with(|slot| slot.replace(card.excerpt));
     CARD_PLACEHOLDER.with(|slot| slot.replace(card.placeholder));
     LINK_PAGE.with(|slot| slot.replace(card.link_page));
-    LINK_THUMB.with(|slot| slot.replace(card.link_thumb));
     SHOWS_IMAGE.set(card.shows_image);
     THEME.set(data.theme);
     ACTIONS.with(|slot| slot.replace(commands::chips(&data)));
     POOL.with(|slot| slot.replace(commands::search_pool(&data)));
     OVERFLOW.with(|slot| slot.replace(commands::overflow(&data)));
+    HISTORY_NAV.with(|slot| slot.replace(data.history_nav));
+    WARM_LINKS.with(|slot| slot.replace(data.warm_links));
 }
 
 fn hide() {
@@ -345,6 +356,8 @@ fn ensure_window(mtm: MainThreadMarker) {
     let preview_text = payload_view(mtm);
     let preview_image = image_view(mtm);
     let pills = NSView::initWithFrame(NSView::alloc(mtm), NSRect::ZERO);
+    let older = nav_button(mtm, "<", sel!(olderClicked:));
+    let newer = nav_button(mtm, ">", sel!(newerClicked:));
     let more = icon_button(mtm, "⋯", sel!(moreClicked:));
     let close = icon_button(mtm, "✕", sel!(closeClicked:));
 
@@ -357,6 +370,8 @@ fn ensure_window(mtm: MainThreadMarker) {
     content.addSubview(&meta);
     content.addSubview(&field);
     content.addSubview(&pills);
+    content.addSubview(&older.root);
+    content.addSubview(&newer.root);
 
     HEADER.with(|slot| slot.replace(Some(header)));
     META.with(|slot| slot.replace(Some(meta)));
@@ -365,6 +380,8 @@ fn ensure_window(mtm: MainThreadMarker) {
     PREVIEW_TEXT.with(|slot| slot.replace(Some(preview_text)));
     PREVIEW_IMAGE.with(|slot| slot.replace(Some(preview_image)));
     PILLS.with(|slot| slot.replace(Some(pills)));
+    OLDER.with(|slot| slot.replace(Some(older)));
+    NEWER.with(|slot| slot.replace(Some(newer)));
     MORE.with(|slot| slot.replace(Some(more)));
     CLOSE.with(|slot| slot.replace(Some(close)));
     WINDOW.with(|slot| slot.replace(Some(window)));
@@ -386,13 +403,19 @@ fn layout(fresh_place: bool) {
     let labels: Vec<String> = shown.iter().map(|cmd| cmd.title.clone()).collect();
     let titles: Vec<&str> = labels.iter().map(String::as_str).collect();
     let inner = WIDTH - PAD * 2.0;
+    let nav = HISTORY_NAV.with(|slot| *slot.borrow());
+    let reserve = if nav.is_some() {
+        commands::NAV_RESERVE
+    } else {
+        0.0
+    };
     let frames = if shown.is_empty() {
         Vec::new()
     } else {
-        commands::layout_chips(&titles, inner)
+        commands::layout_chips(&titles, inner, reserve)
     };
     let show_empty = shown.is_empty() && searching && !query.trim().is_empty();
-    let placed = place_sections(&meta, searching, &frames, show_empty);
+    let placed = place_sections(&meta, searching, &frames, show_empty, nav.is_some());
     let Some(mtm) = MainThreadMarker::new() else {
         return;
     };
@@ -432,9 +455,19 @@ fn layout(fresh_place: bool) {
                 NSPoint::new(PAD, placed.chips_y),
                 NSSize::new(inner, placed.chips_h),
             ));
-            rebuild_pills(mtm, pills, &shown, &frames, show_empty);
+            rebuild_pills(
+                mtm,
+                pills,
+                &shown,
+                &frames,
+                show_empty,
+                (inner - reserve).max(0.0),
+            );
         }
     });
+    let nav_y = placed.chips_y + placed.chips_h - commands::CHIP_PITCH
+        + (commands::CHIP_PITCH - commands::CHIP_PILL_H) / 2.0;
+    place_history_nav(nav_y, nav);
     let selected = SELECTION.with(Cell::get);
     if shown.is_empty() {
         SELECTION.set(0);
@@ -444,6 +477,7 @@ fn layout(fresh_place: bool) {
     SHOWN.with(|slot| slot.replace(shown));
     FRAMES.with(|slot| slot.replace(frames));
     paint_pills();
+    warm_around();
 }
 
 struct Sections {
@@ -456,14 +490,23 @@ struct Sections {
     chips_h: f64,
 }
 
-fn place_sections(meta: &str, searching: bool, frames: &[ChipFrame], show_empty: bool) -> Sections {
+fn place_sections(
+    meta: &str,
+    searching: bool,
+    frames: &[ChipFrame],
+    show_empty: bool,
+    show_nav: bool,
+) -> Sections {
     let meta_h = if meta.is_empty() { 0.0 } else { META_H };
     let search_h = if searching { SEARCH_H } else { 0.0 };
-    let chips_h = if show_empty {
+    let mut chips_h = if show_empty {
         28.0
     } else {
         commands::chips_height(frames)
     };
+    if show_nav {
+        chips_h = chips_h.max(commands::CHIP_PITCH);
+    }
     let gap_after_preview = if meta_h > 0.0 || search_h > 0.0 || chips_h > 0.0 {
         GAP
     } else {
@@ -587,74 +630,151 @@ fn place_well(y: f64) {
     });
 }
 
+struct CachedLink {
+    image: Option<Retained<NSImage>>,
+    caption: Option<String>,
+    failed: bool,
+}
+
+const LINK_CACHE_MAX: usize = 20;
+
 fn resolved_meta() -> String {
     let page = LINK_PAGE.with(|slot| slot.borrow().clone());
-    let caption = LINK_CAPTION.with(|slot| slot.borrow().clone());
-    if let (Some(page), Some((cached, caption))) = (page, caption)
-        && cached == page
+    let Some(page) = page else {
+        return card_meta();
+    };
+    if let Some(caption) = cached_caption(&page)
         && !caption.is_empty()
     {
         return caption;
     }
+    if cached_failed(&page) {
+        return card_meta();
+    }
+    // Keep the title already on screen while the next preview is still loading.
+    if cached_image(&page).is_some() || preview_holding_picture() {
+        let held = current_meta_label();
+        if !held.is_empty() {
+            return held;
+        }
+    }
+    card_meta()
+}
+
+fn card_meta() -> String {
     CARD_META.with(|slot| slot.borrow().clone())
 }
 
+fn current_meta_label() -> String {
+    META.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .map(|label| label.stringValue().to_string())
+            .unwrap_or_default()
+    })
+}
+
 fn apply_preview(y: f64) {
-    let frame = NSRect::new(
+    let image_frame = NSRect::new(
         NSPoint::new(PAD + 8.0, y + 8.0),
         NSSize::new(WIDTH - PAD * 2.0 - 16.0, PREVIEW_H - 16.0),
     );
-    let pasteboard = SHOWS_IMAGE.with(Cell::get);
-    let link_image = if pasteboard {
-        None
-    } else {
-        loaded_link_image()
-    };
-    let shows_picture = pasteboard || link_image.is_some();
+    let text_frame = NSRect::new(
+        NSPoint::new(PAD, y),
+        NSSize::new(WIDTH - PAD * 2.0, PREVIEW_H),
+    );
     PREVIEW_IMAGE.with(|slot| {
         if let Some(view) = slot.borrow().as_ref() {
-            view.setFrame(frame);
-            view.setHidden(!shows_picture);
-            if let Some(image) = link_image.as_ref() {
-                view.setImage(Some(image));
-            }
+            view.setFrame(image_frame);
         }
     });
     PREVIEW_TEXT.with(|slot| {
         if let Some(view) = slot.borrow().as_ref() {
-            view.setFrame(NSRect::new(
-                NSPoint::new(PAD, y),
-                NSSize::new(WIDTH - PAD * 2.0, PREVIEW_H),
-            ));
-            view.setHidden(shows_picture);
+            view.setFrame(text_frame);
         }
     });
-    if pasteboard {
+    if SHOWS_IMAGE.with(Cell::get) {
+        set_preview_image_hidden(false);
+        set_preview_text_hidden(true);
         load_thumbnail();
         return;
     }
-    if link_image.is_some() {
-        THUMB_TOKEN.set(-1);
+    THUMB_TOKEN.set(-1);
+    let page = LINK_PAGE.with(|slot| slot.borrow().clone());
+    if let Some(page) = page.as_deref() {
+        if let Some(image) = cached_image(page) {
+            set_preview_image(&image);
+            set_preview_image_hidden(false);
+            set_preview_text_hidden(true);
+            return;
+        }
+        if cached_failed(page) {
+            set_preview_image_hidden(true);
+            paint_preview_text("No preview", false);
+            return;
+        }
+        // Painting the address here is the flash between history steps.
+        if preview_holding_picture() {
+            set_preview_image_hidden(false);
+            set_preview_text_hidden(true);
+        } else {
+            set_preview_image_hidden(true);
+            set_preview_text_hidden(true);
+        }
         return;
     }
-    THUMB_TOKEN.set(-1);
+    set_preview_image_hidden(true);
     let excerpt = CARD_EXCERPT.with(|slot| slot.borrow().clone());
     let placeholder = CARD_PLACEHOLDER.with(|slot| slot.borrow().clone());
-    let failed = link_preview_failed();
-    let payload = !excerpt.is_empty() && !failed;
-    let body = if failed {
-        "No preview".to_string()
-    } else if !excerpt.is_empty() {
+    let payload = !excerpt.is_empty();
+    let body = if !excerpt.is_empty() {
         excerpt
     } else {
         placeholder
     };
+    paint_preview_text(&body, payload);
+}
+
+fn preview_holding_picture() -> bool {
+    PREVIEW_IMAGE.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .is_some_and(|view| !view.isHidden() && view.image().is_some())
+    })
+}
+
+fn set_preview_image_hidden(hidden: bool) {
+    PREVIEW_IMAGE.with(|slot| {
+        if let Some(view) = slot.borrow().as_ref() {
+            view.setHidden(hidden);
+        }
+    });
+}
+
+fn set_preview_text_hidden(hidden: bool) {
+    PREVIEW_TEXT.with(|slot| {
+        if let Some(view) = slot.borrow().as_ref() {
+            view.setHidden(hidden);
+        }
+    });
+}
+
+fn set_preview_image(image: &NSImage) {
+    PREVIEW_IMAGE.with(|slot| {
+        if let Some(view) = slot.borrow().as_ref() {
+            view.setImage(Some(image));
+        }
+    });
+}
+
+fn paint_preview_text(body: &str, payload: bool) {
     PREVIEW_TEXT.with(|slot| {
         let borrowed = slot.borrow();
         let Some(view) = borrowed.as_ref() else {
             return;
         };
-        view.setString(&NSString::from_str(&body));
+        view.setHidden(false);
+        view.setString(&NSString::from_str(body));
         let font = if payload {
             NSFont::userFixedPitchFontOfSize(12.0).unwrap_or_else(|| NSFont::systemFontOfSize(12.0))
         } else {
@@ -668,67 +788,188 @@ fn apply_preview(y: f64) {
         view.setFont(Some(&font));
         view.setTextColor(Some(&color));
     });
-    ensure_link_preview();
 }
 
-fn loaded_link_image() -> Option<Retained<NSImage>> {
-    let page = LINK_PAGE.with(|slot| slot.borrow().clone())?;
-    LINK_IMAGE.with(|slot| {
+fn cached_image(page: &str) -> Option<Retained<NSImage>> {
+    LINK_CACHE.with(|slot| {
         slot.borrow()
-            .as_ref()
-            .and_then(|(url, image)| (url == &page).then(|| image.clone()))
+            .iter()
+            .find(|(key, _)| key == page)
+            .and_then(|(_, entry)| entry.image.clone())
     })
 }
 
-fn ensure_link_preview() {
-    let Some(page) = LINK_PAGE.with(|slot| slot.borrow().clone()) else {
-        return;
-    };
-    if loaded_link_image().is_some() {
-        return;
-    }
-    if LINK_IN_FLIGHT.with(|slot| slot.borrow().as_deref() == Some(page.as_str())) {
-        return;
-    }
-    if LINK_FAILED.with(|slot| slot.borrow().as_deref() == Some(page.as_str())) {
-        return;
-    }
-    let ticket = LINK_GEN.with(|cell| {
-        let next = cell.get().wrapping_add(1);
-        cell.set(next);
-        next
-    });
-    LINK_IN_FLIGHT.with(|slot| slot.replace(Some(page.clone())));
-    let thumb = LINK_THUMB.with(|slot| slot.borrow().clone());
-    std::thread::spawn(move || {
-        let (bytes, caption) =
-            objc2::rc::autoreleasepool(|_| load_link_preview(&page, thumb.as_deref()));
-        dispatch2::DispatchQueue::main().exec_async(move || {
-            finish_link_preview(ticket, page, bytes, caption);
-        });
+fn cached_caption(page: &str) -> Option<String> {
+    LINK_CACHE.with(|slot| {
+        slot.borrow()
+            .iter()
+            .find(|(key, _)| key == page)
+            .and_then(|(_, entry)| entry.caption.clone())
+    })
+}
+
+fn cached_failed(page: &str) -> bool {
+    LINK_CACHE.with(|slot| {
+        slot.borrow()
+            .iter()
+            .any(|(key, entry)| key == page && entry.failed)
+    })
+}
+
+fn link_settled(page: &str) -> bool {
+    LINK_CACHE.with(|slot| {
+        slot.borrow()
+            .iter()
+            .any(|(key, entry)| key == page && (entry.image.is_some() || entry.failed))
+    })
+}
+
+fn link_in_flight(page: &str) -> bool {
+    LINK_IN_FLIGHT.with(|slot| slot.borrow().iter().any(|item| item == page))
+}
+
+fn update_link_cache(page: &str, edit: impl FnOnce(&mut CachedLink)) {
+    LINK_CACHE.with(|slot| {
+        let mut cache = slot.borrow_mut();
+        let mut entry = if let Some(index) = cache.iter().position(|(key, _)| key == page) {
+            cache.remove(index)
+        } else {
+            (
+                page.to_string(),
+                CachedLink {
+                    image: None,
+                    caption: None,
+                    failed: false,
+                },
+            )
+        };
+        edit(&mut entry.1);
+        cache.insert(0, entry);
+        while cache.len() > LINK_CACHE_MAX {
+            cache.pop();
+        }
     });
 }
 
-fn link_preview_failed() -> bool {
-    let page = LINK_PAGE.with(|slot| slot.borrow().clone());
-    LINK_FAILED.with(|slot| slot.borrow().as_deref() == page.as_deref() && page.is_some())
+fn store_link_image(page: &str, bytes: &[u8]) {
+    let image = nsimage_from_bytes(bytes);
+    let failed = image.is_none();
+    update_link_cache(page, |entry| {
+        entry.image = image;
+        entry.failed = failed;
+    });
+}
+
+fn store_link_caption(page: &str, caption: Option<String>) {
+    let Some(caption) = caption.filter(|text| !text.is_empty()) else {
+        return;
+    };
+    update_link_cache(page, |entry| {
+        entry.caption = Some(caption);
+    });
+}
+
+fn end_link_fetch(page: &str) {
+    LINK_IN_FLIGHT.with(|slot| slot.borrow_mut().retain(|item| item != page));
+}
+
+fn reveal_link(page: &str) {
+    let current = LINK_PAGE.with(|slot| slot.borrow().clone());
+    if current.as_deref() == Some(page) && OPEN.with(Cell::get) {
+        layout(false);
+    }
+}
+
+fn show_link_caption(page: &str) {
+    let current = LINK_PAGE.with(|slot| slot.borrow().clone());
+    if current.as_deref() != Some(page) || !OPEN.with(Cell::get) {
+        return;
+    }
+    let Some(caption) = cached_caption(page) else {
+        return;
+    };
+    let painted = META.with(|slot| {
+        let borrowed = slot.borrow();
+        let Some(label) = borrowed.as_ref() else {
+            return false;
+        };
+        if label.isHidden() {
+            return false;
+        }
+        label.setStringValue(&NSString::from_str(&caption));
+        true
+    });
+    if !painted {
+        layout(false);
+    }
+}
+
+fn warm_around() {
+    let mut pages = WARM_LINKS.with(|slot| slot.borrow().clone());
+    if let Some(page) = LINK_PAGE.with(|slot| slot.borrow().clone())
+        && !pages.iter().any(|existing| existing == &page)
+    {
+        pages.insert(0, page);
+    }
+    for page in pages {
+        warm_link(page);
+    }
+}
+
+fn warm_link(page: String) {
+    if link_settled(&page) || link_in_flight(&page) {
+        return;
+    }
+    LINK_IN_FLIGHT.with(|slot| slot.borrow_mut().push(page.clone()));
+    std::thread::spawn(move || publish_link(page));
+}
+
+fn publish_link(page: String) {
+    if crate::youtube::video_id(&page).is_some() {
+        let bytes = objc2::rc::autoreleasepool(|_| youtube_thumb_bytes(&page));
+        let image_page = page.clone();
+        dispatch2::DispatchQueue::main().exec_async(move || {
+            store_link_image(&image_page, &bytes);
+            reveal_link(&image_page);
+        });
+        let caption = objc2::rc::autoreleasepool(|_| youtube_caption(&page));
+        dispatch2::DispatchQueue::main().exec_async(move || {
+            store_link_caption(&page, caption);
+            end_link_fetch(&page);
+            show_link_caption(&page);
+        });
+        return;
+    }
+    let (bytes, caption) = objc2::rc::autoreleasepool(|_| page_preview_parts(&page));
+    dispatch2::DispatchQueue::main().exec_async(move || {
+        store_link_caption(&page, caption);
+        store_link_image(&page, &bytes);
+        end_link_fetch(&page);
+        reveal_link(&page);
+    });
 }
 
 fn usable_thumbnail(bytes: &[u8]) -> bool {
     bytes.len() > 8_000 && (bytes.starts_with(b"\xFF\xD8") || bytes.starts_with(b"\x89PNG"))
 }
 
-fn load_link_preview(page: &str, thumb: Option<&str>) -> (Vec<u8>, Option<String>) {
-    if let Some(id) = crate::youtube::video_id(page) {
-        let bytes = crate::macos_fetch::get(&crate::youtube::wide_thumbnail_url(id))
-            .filter(|bytes| usable_thumbnail(bytes))
-            .or_else(|| thumb.and_then(crate::macos_fetch::get))
-            .unwrap_or_default();
-        let watch = crate::format::format_text(page);
-        let caption = crate::macos_fetch::get(&crate::youtube::oembed_endpoint(&watch))
-            .and_then(|body| crate::youtube::caption_from_oembed(&body));
-        return (bytes, caption);
-    }
+fn youtube_thumb_bytes(page: &str) -> Vec<u8> {
+    let Some(id) = crate::youtube::video_id(page) else {
+        return Vec::new();
+    };
+    crate::macos_fetch::get(&crate::youtube::wide_thumbnail_url(id))
+        .filter(|bytes| usable_thumbnail(bytes))
+        .or_else(|| crate::macos_fetch::get(&crate::youtube::thumbnail_url(id)))
+        .unwrap_or_default()
+}
+
+fn youtube_caption(page: &str) -> Option<String> {
+    let watch = crate::format::format_text(page);
+    crate::macos_fetch::get(&crate::youtube::oembed_endpoint(&watch))
+        .and_then(|body| crate::youtube::caption_from_oembed(&body))
+}
+
+fn page_preview_parts(page: &str) -> (Vec<u8>, Option<String>) {
     let fetch_at = crate::page_preview::canonical_url(page).unwrap_or_else(|| page.to_string());
     let html = crate::macos_fetch::get_document(&fetch_at).unwrap_or_default();
     let text = String::from_utf8_lossy(&html);
@@ -739,28 +980,6 @@ fn load_link_preview(page: &str, thumb: Option<&str>) -> (Vec<u8>, Option<String
         .and_then(crate::macos_fetch::get_asset)
         .unwrap_or_default();
     (bytes, found.title)
-}
-
-fn finish_link_preview(ticket: u64, page: String, bytes: Vec<u8>, caption: Option<String>) {
-    if LINK_GEN.with(Cell::get) != ticket {
-        return;
-    }
-    LINK_IN_FLIGHT.with(|slot| slot.replace(None));
-    if let Some(caption) = caption {
-        LINK_CAPTION.with(|slot| slot.replace(Some((page.clone(), caption))));
-    }
-    let Some(image) = nsimage_from_bytes(&bytes) else {
-        LINK_FAILED.with(|slot| slot.replace(Some(page)));
-        if OPEN.with(Cell::get) {
-            layout(false);
-        }
-        return;
-    };
-    LINK_FAILED.with(|slot| slot.replace(None));
-    LINK_IMAGE.with(|slot| slot.replace(Some((page, image))));
-    if OPEN.with(Cell::get) {
-        layout(false);
-    }
 }
 
 fn load_thumbnail() {
@@ -784,6 +1003,7 @@ fn rebuild_pills(
     shown: &[Command],
     frames: &[ChipFrame],
     show_empty: bool,
+    text_width: f64,
 ) {
     while list.subviews().count() > 0 {
         list.subviews().objectAtIndex(0).removeFromSuperview();
@@ -793,7 +1013,7 @@ fn rebuild_pills(
             let empty = static_label(mtm, 13.0, &NSColor::secondaryLabelColor());
             empty.setFrame(NSRect::new(
                 NSPoint::new(2.0, 4.0),
-                NSSize::new(WIDTH - PAD * 2.0, 20.0),
+                NSSize::new(text_width, 20.0),
             ));
             empty.setStringValue(&NSString::from_str("No matching commands"));
             list.addSubview(&empty);
@@ -1164,6 +1384,93 @@ fn image_view(mtm: MainThreadMarker) -> Retained<NSImageView> {
     view.setImageAlignment(NSImageAlignment::AlignCenter);
     view.setHidden(true);
     view
+}
+
+struct NavButton {
+    root: Retained<NSView>,
+    hit: Retained<NSButton>,
+}
+
+fn place_history_nav(y: f64, nav: Option<commands::HistoryNav>) {
+    let newer_x = WIDTH - PAD - commands::NAV_BUTTON;
+    let older_x = newer_x - commands::NAV_GAP - commands::NAV_BUTTON;
+    let shown = nav.is_some();
+    OLDER.with(|slot| {
+        place_nav_button(
+            slot,
+            older_x,
+            y,
+            shown,
+            nav.is_some_and(|nav| nav.can_older),
+        );
+    });
+    NEWER.with(|slot| {
+        place_nav_button(
+            slot,
+            newer_x,
+            y,
+            shown,
+            nav.is_some_and(|nav| nav.can_newer),
+        );
+    });
+}
+
+fn place_nav_button(slot: &RefCell<Option<NavButton>>, x: f64, y: f64, shown: bool, enabled: bool) {
+    let borrowed = slot.borrow();
+    let Some(button) = borrowed.as_ref() else {
+        return;
+    };
+    button.root.setHidden(!shown);
+    button.root.setFrame(NSRect::new(
+        NSPoint::new(x, y),
+        NSSize::new(commands::NAV_BUTTON, commands::CHIP_PILL_H),
+    ));
+    button.hit.setEnabled(enabled);
+    button.root.setAlphaValue(if enabled { 1.0 } else { 0.35 });
+}
+
+fn nav_button(mtm: MainThreadMarker, title: &str, action: Sel) -> NavButton {
+    let root = NSView::initWithFrame(
+        NSView::alloc(mtm),
+        NSRect::new(
+            NSPoint::new(0.0, 0.0),
+            NSSize::new(commands::NAV_BUTTON, commands::CHIP_PILL_H),
+        ),
+    );
+    let fill = filled_box(
+        mtm,
+        commands::CHIP_PILL_H / 2.0,
+        &NSColor::unemphasizedSelectedContentBackgroundColor(),
+    );
+    fill.setFrame(NSRect::new(
+        NSPoint::new(0.0, 0.0),
+        NSSize::new(commands::NAV_BUTTON, commands::CHIP_PILL_H),
+    ));
+    let label = static_label(mtm, 15.0, &NSColor::labelColor());
+    label.setAlignment(NSTextAlignment::Center);
+    label.setLineBreakMode(NSLineBreakMode::ByClipping);
+    label.setFrame(NSRect::new(
+        NSPoint::new(0.0, 5.0),
+        NSSize::new(commands::NAV_BUTTON, 18.0),
+    ));
+    label.setStringValue(&NSString::from_str(title));
+    let hit = NSButton::initWithFrame(
+        NSButton::alloc(mtm),
+        NSRect::new(
+            NSPoint::new(0.0, 0.0),
+            NSSize::new(commands::NAV_BUTTON, commands::CHIP_PILL_H),
+        ),
+    );
+    hit.setBordered(false);
+    hit.setTransparent(true);
+    hit.setTitle(&NSString::from_str(""));
+    hit.setFocusRingType(NSFocusRingType::None);
+    wire_button(&hit, action);
+    root.addSubview(&fill);
+    root.addSubview(&label);
+    root.addSubview(&hit);
+    root.setHidden(true);
+    NavButton { root, hit }
 }
 
 fn icon_button(mtm: MainThreadMarker, title: &str, action: Sel) -> Retained<NSButton> {

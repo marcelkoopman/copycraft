@@ -9,6 +9,12 @@ pub const CHIP_PITCH: f64 = 34.0;
 pub const CHIP_PILL_H: f64 = 28.0;
 
 const CHIP_GAP: f64 = 6.0;
+/// History arrow buttons. Same height as a chip, wide enough for `<` and `>`.
+pub const NAV_BUTTON: f64 = 32.0;
+pub const NAV_GAP: f64 = CHIP_GAP;
+pub const NAV_SPAN: f64 = NAV_BUTTON + NAV_GAP + NAV_BUTTON;
+/// Empty space kept on the right of the first chip row so the arrows fit.
+pub const NAV_RESERVE: f64 = CHIP_GAP + NAV_SPAN;
 const EXCERPT_LINES: usize = 6;
 const EXCERPT_LINE_CHARS: usize = 48;
 
@@ -42,7 +48,18 @@ pub struct LaunchData {
     pub image: Option<ImageFacts>,
     pub history: Vec<Hist>,
     pub can_clear_history: bool,
+    /// `<` older and `>` newer, when an earlier copy exists. Absent hides both.
+    pub history_nav: Option<HistoryNav>,
+    /// Current link and the copies beside it, fetched ahead of the next arrow.
+    pub warm_links: Vec<String>,
     pub theme: Theme,
+}
+
+/// Which way history can move. Index 0 is the newest copy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HistoryNav {
+    pub can_older: bool,
+    pub can_newer: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,6 +76,10 @@ pub enum CommandId {
     ImageDataUrl,
     ImageFile,
     History(usize),
+    /// Step to the previous copy. The history order stays put.
+    HistoryOlder,
+    /// Step back toward the newest copy.
+    HistoryNewer,
     ClearClipboard,
     ClearHistory,
     Appearance(Theme),
@@ -342,13 +363,19 @@ pub fn chip_width(title: &str) -> f64 {
     (32.0 + chars * 8.0).clamp(64.0, 220.0)
 }
 
-pub fn layout_chips(titles: &[&str], width: f64) -> Vec<ChipFrame> {
+/// `trailing` is kept clear on the right of the first row only.
+pub fn layout_chips(titles: &[&str], width: f64, trailing: f64) -> Vec<ChipFrame> {
     let mut frames = Vec::with_capacity(titles.len());
     let mut x = 0.0;
     let mut row = 0usize;
     for title in titles {
         let chip = chip_width(title);
-        if x > 0.0 && x + chip > width {
+        let limit = if row == 0 {
+            (width - trailing).max(0.0)
+        } else {
+            width
+        };
+        if x > 0.0 && x + chip > limit {
             row += 1;
             x = 0.0;
         }
@@ -360,6 +387,70 @@ pub fn layout_chips(titles: &[&str], width: f64) -> Vec<ChipFrame> {
         x += chip + CHIP_GAP;
     }
     frames
+}
+
+/// Arrows when there is an earlier copy. `cursor` 0 is the newest entry.
+pub fn history_nav(len: usize, cursor: usize) -> Option<HistoryNav> {
+    if len < 2 {
+        return None;
+    }
+    let cursor = cursor.min(len - 1);
+    Some(HistoryNav {
+        can_older: cursor + 1 < len,
+        can_newer: cursor > 0,
+    })
+}
+
+pub fn step_history(len: usize, cursor: usize, older: bool) -> Option<usize> {
+    let nav = history_nav(len, cursor)?;
+    let cursor = cursor.min(len - 1);
+    if older && nav.can_older {
+        Some(cursor + 1)
+    } else if !older && nav.can_newer {
+        Some(cursor - 1)
+    } else {
+        None
+    }
+}
+
+/// Link pages for `cursor` and the entries beside it. Current first, then older, then newer.
+pub fn pages_around(entries: &[Option<&str>], cursor: usize) -> Vec<String> {
+    if entries.is_empty() {
+        return Vec::new();
+    }
+    let cursor = cursor.min(entries.len() - 1);
+    let mut pages = Vec::new();
+    let mut push = |index: usize| {
+        let Some(text) = entries.get(index).copied().flatten() else {
+            return;
+        };
+        let Some(page) = link_page_key(text) else {
+            return;
+        };
+        if !pages.iter().any(|existing| existing == &page) {
+            pages.push(page);
+        }
+    };
+    push(cursor);
+    if let Some(older) = cursor.checked_add(1) {
+        push(older);
+    }
+    if let Some(newer) = cursor.checked_sub(1) {
+        push(newer);
+    }
+    pages
+}
+
+fn link_page_key(text: &str) -> Option<String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    if crate::youtube::video_id(text).is_some() || crate::page_preview::page_url(text).is_some() {
+        Some(text.to_string())
+    } else {
+        None
+    }
 }
 
 pub fn chips_height(frames: &[ChipFrame]) -> f64 {
@@ -401,6 +492,8 @@ pub fn keeps_card_open(id: &CommandId) -> bool {
     matches!(
         id,
         CommandId::History(_)
+            | CommandId::HistoryOlder
+            | CommandId::HistoryNewer
             | CommandId::Appearance(_)
             | CommandId::ClearClipboard
             | CommandId::ClearHistory
@@ -560,8 +653,9 @@ fn command(id: CommandId, title: &str, detail: &str, keywords: &str) -> Command 
 #[cfg(test)]
 mod tests {
     use super::{
-        CommandId, Hist, ImageFacts, LaunchData, SubjectKind, chip_width, chips, layout_chips,
-        matching, overflow, payload_excerpt, search_pool, snippet, step_chip, work_card,
+        CommandId, Hist, ImageFacts, LaunchData, NAV_RESERVE, NAV_SPAN, SubjectKind, chip_width,
+        chips, history_nav, layout_chips, matching, overflow, pages_around, payload_excerpt,
+        search_pool, snippet, step_chip, step_history, work_card,
     };
     use crate::appearance::Theme;
 
@@ -572,6 +666,8 @@ mod tests {
             image: None,
             history: Vec::new(),
             can_clear_history: false,
+            history_nav: None,
+            warm_links: Vec::new(),
             theme: Theme::System,
         }
     }
@@ -844,7 +940,7 @@ mod tests {
     #[test]
     fn chips_wrap_and_arrows_move_between_pills() {
         let titles = ["Preview", "Base64", "Data URL", "File", "Format", "Convert"];
-        let frames = layout_chips(&titles, 220.0);
+        let frames = layout_chips(&titles, 220.0, 0.0);
         assert!(frames.len() == titles.len());
         assert_eq!(frames[0].row, 0);
         assert!(frames.last().unwrap().row > 0);
@@ -854,5 +950,57 @@ mod tests {
         assert_ne!(frames[down].row, frames[0].row);
         assert_eq!(step_chip(&frames, down, 0, -1), 0);
         assert_eq!(step_chip(&[], 0, 1, 0), 0);
+    }
+
+    #[test]
+    fn history_nav_hides_until_an_earlier_copy_exists() {
+        assert!(history_nav(0, 0).is_none());
+        assert!(history_nav(1, 0).is_none());
+        let newest = history_nav(3, 0).unwrap();
+        assert!(newest.can_older);
+        assert!(!newest.can_newer);
+        let middle = history_nav(3, 1).unwrap();
+        assert!(middle.can_older && middle.can_newer);
+        let oldest = history_nav(3, 2).unwrap();
+        assert!(!oldest.can_older);
+        assert!(oldest.can_newer);
+        assert_eq!(step_history(3, 0, true), Some(1));
+        assert_eq!(step_history(3, 0, false), None);
+        assert_eq!(step_history(3, 2, true), None);
+        assert_eq!(step_history(3, 2, false), Some(1));
+        assert_eq!(step_history(1, 0, true), None);
+    }
+
+    #[test]
+    fn history_navigation_warms_the_page_and_its_neighbors() {
+        let current = "https://youtu.be/abcdefghijk";
+        let older = "https://www.youtube.com/watch?v=bcdefghijkl";
+        let newer = "https://example.com/news";
+        let entries = [Some(current), Some(older), Some("plain notes"), Some(newer)];
+        assert_eq!(
+            pages_around(&entries, 0),
+            vec![current.to_string(), older.to_string()]
+        );
+        assert_eq!(
+            pages_around(&entries, 1),
+            vec![older.to_string(), current.to_string()]
+        );
+        assert_eq!(
+            pages_around(&entries, 2),
+            vec![newer.to_string(), older.to_string()]
+        );
+        assert!(pages_around(&[], 0).is_empty());
+    }
+
+    #[test]
+    fn history_arrows_keep_the_first_row_clear() {
+        let titles = ["Visit", "Format", "Preview", "Base64", "Data URL", "File"];
+        let width = 412.0;
+        let frames = layout_chips(&titles, width, NAV_RESERVE);
+        let nav_left = width - NAV_SPAN;
+        assert!(frames.iter().any(|frame| frame.row > 0));
+        for frame in frames.iter().filter(|frame| frame.row == 0) {
+            assert!(frame.x + frame.width <= nav_left - super::CHIP_GAP + 0.01);
+        }
     }
 }
